@@ -23,7 +23,7 @@ let package = Package(
         ),
         .target(
             name: "GPUQuicksort",
-            dependencies: ["CShared"],
+            dependencies: ["CShared", "CPUBaselines"],
             exclude: ["Metal"],
             resources: [.copy("Resources")],
             swiftSettings: hooks

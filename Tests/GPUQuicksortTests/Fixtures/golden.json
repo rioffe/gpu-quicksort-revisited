@@ -1,0 +1,21 @@
+{
+  "mt19937_seed5489_first": 3499211612,
+  "n": 1024,
+  "seed": 42,
+  "sha256": {
+    "float32/bucket": "75d4b8d313a4ecf806f54a91b11f9936f942a70da5951b55c85b91667fb5e84f",
+    "float32/fullrange": "a33a67e184218b77aa3d01b893811fe207f40d1680650e16f3d4e147892eb5a1",
+    "float32/gaussian": "fb3b09a8b2b2be2cd51b91733f6a9ec8ca1a14dcaf076d7fbf2ae3a13d7cc6f1",
+    "float32/sorted": "eb6c65ac02ec46e57c5585eb88a211662ea71f91db225836f13504f5d6ba2992",
+    "float32/staggered": "cc1e40085543f55978e286a372a5da95a0f6c8b1358e6bf198e3aeadde9ec73f",
+    "float32/uniform": "9ab2f6e4c6777b46d69457a031301bc91a4c9ef065f0573da04b785b40953d66",
+    "float32/zero": "90a3d61b06aa7dc32f8c24a9802164edd41544d41c634d65bfedc474adb91735",
+    "uint32/bucket": "dd3bc09d5b479e0b3c972b808d9a7ff87d27acdb86d09907a4d719179691e06b",
+    "uint32/fullrange": "a33a67e184218b77aa3d01b893811fe207f40d1680650e16f3d4e147892eb5a1",
+    "uint32/gaussian": "77dce12bcb9861e0e9dcfc0200c5c3b7bfbf50c14d3830092e3ffecd33eee80a",
+    "uint32/sorted": "6b08f74d993b75482ce5fcd4d703d599b2f73fb81a84ec592eab75b5c8c189f0",
+    "uint32/staggered": "834d4f0f95ad182a537a0c9ea591310d589d90a842377039afdb3cbcc2ee1f39",
+    "uint32/uniform": "1ed4ce4feda9c9d6f51de00f998ea9ba2917a0e0b46218165bbecc23ce191a54",
+    "uint32/zero": "99471ec4ea721119fea9e2c7b6ed0124d5cf2d118fca9fb6346e90f412eb4c66"
+  }
+}

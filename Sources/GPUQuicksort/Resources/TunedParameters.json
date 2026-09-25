@@ -1,0 +1,27 @@
+{
+  "entries" : {
+    "apple-default" : {
+      "sameAs" : "paper-8800gtx"
+    },
+    "paper-8800gtx" : {
+      "fitted" : "2009-07-01",
+      "gpuqsortVersion" : "paper",
+      "maxseq" : {
+        "k" : 3.748e-05,
+        "m" : 476
+      },
+      "minseq" : {
+        "k" : 4.685e-05,
+        "m" : 211
+      },
+      "sizes" : [
+
+      ],
+      "threads" : {
+        "k" : 1.172e-05,
+        "m" : 53
+      }
+    }
+  },
+  "schema" : 1
+}
