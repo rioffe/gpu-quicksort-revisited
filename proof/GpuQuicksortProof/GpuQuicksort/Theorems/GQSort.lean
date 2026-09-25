@@ -654,7 +654,9 @@ theorem fillDispatchSpec (k bs : Nat) (mem : Mem) (recs : List Rec) (blks : List
     (∀ x, (∀ j < recs.length, x < (recs.getD j dR).lnext ∨ (recs.getD j dR).gnext ≤ x) → res.1.D x = mem.D x) ∧
     res.1.A = mem.A ∧
     (res.2.map Prod.fst).Perm ((List.range recs.length).flatMap fun j =>
-      List.range' (recs.getD j dR).lnext ((recs.getD j dR).gnext - (recs.getD j dR).lnext)) := by
+      List.range' (recs.getD j dR).lnext ((recs.getD j dR).gnext - (recs.getD j dR).lnext)) ∧
+    (∀ w ∈ res.2, ∃ j < recs.length, (recs.getD j dR).lnext ≤ w.1 ∧ w.1 < (recs.getD j dR).gnext ∧
+      w.2 = (recs.getD j dR).pivot) := by
   intro res
   have hT := Nat.two_pow_pos k
   let F := fun i => fillWrites (2 ^ k) hT bs (recs.getD (blks.getD i dB).seq dR) (blks.getD i dB)
@@ -709,7 +711,7 @@ theorem fillDispatchSpec (k bs : Nat) (mem : Mem) (recs : List Rec) (blks : List
   have gapIn : ∀ j < recs.length, ∀ x, (recs.getD j dR).lnext ≤ x → x < (recs.getD j dR).gnext →
       (recs.getD j dR).start ≤ x ∧ x < (recs.getD j dR).end_ := by
     intro j hj x h1 h2; have := pre.gap j hj; omega
-  refine ⟨fun j hj x h1 h2 => ?_, fun x hx => ?_, rfl, ?_⟩
+  refine ⟨fun j hj x h1 h2 => ?_, fun x hx => ?_, rfl, ?_, fun w hw => ?_⟩
   · show applyW res.2 mem.D x = _
     have hx : x ∈ ((mineOf blks j).flatMap F).map Prod.fst :=
       (recPos j hj).symm.subset (List.mem_range'_1.2 ⟨h1, by omega⟩)
@@ -744,6 +746,10 @@ theorem fillDispatchSpec (k bs : Nat) (mem : Mem) (recs : List Rec) (blks : List
     refine GpuQuicksortSpec.GpuQuicksort.Pipeline.flatMap_perm_congr _ _ _ fun j hj => ?_
     rw [← List.map_flatMap]
     exact recPos j (List.mem_range.1 hj)
+  · rw [hws] at hw
+    obtain ⟨i, hi, hwi⟩ := List.mem_flatMap.1 hw
+    rw [List.mem_range] at hi
+    exact ⟨_, pre.seq i hi, wIn i hi w hwi⟩
 
 /-! ## The O-2 minima and maxima -/
 

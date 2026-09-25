@@ -12,3 +12,5 @@ import GpuQuicksortProof.GpuQuicksort.Theorems.AltSort
 import GpuQuicksortProof.GpuQuicksort.Theorems.LQSort
 import GpuQuicksortProof.GpuQuicksort.Model.GQSort
 import GpuQuicksortProof.GpuQuicksort.Theorems.GQSort
+import GpuQuicksortProof.GpuQuicksort.Model.Sorter
+import GpuQuicksortProof.GpuQuicksort.Theorems.Sorter
