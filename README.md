@@ -165,7 +165,7 @@ cd proof_from_spec && lake build        # Lean 4.34.1, no external packages
 
 ## Scope
 
-The full `SPEC.md` v0.4 is implemented. The spec's non-goals are:
+The full `SPEC.md` v0.5 is implemented. The spec's non-goals are:
 - stable or key–value sorting;
 - keys wider than 32 bits;
 - a guard against Quicksort's worst case;
