@@ -2,3 +2,5 @@
 .swiftpm/
 *.xcodeproj/xcuserdata/
 .DS_Store
+build/
+junit*.xml
