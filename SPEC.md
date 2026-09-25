@@ -1,6 +1,6 @@
 # SPECIFICATION — GPU-Quicksort for Metal (parallel sorting, Swift library + CLI, Swift 6 / Metal on Apple silicon)
 
-> - **Status:** v0.3 — review findings F-001..F-019 of `SPEC_REVIEW_REPORT.md` folded in; D-01..D-15 ratified (see §12 and *Revision history*)
+> - **Status:** v0.4 — review findings F-001..F-019 (round 1) and F-020..F-030 (round 2) of `SPEC_REVIEW_REPORT.md` folded in; D-01..D-15 ratified (see §12 and *Revision history*)
 > - **Language / stack:** Swift 6 (language mode 6) | Metal Shading Language 3.x, Metal framework, swift-argument-parser | C/C++ shim for CPU baselines (libc `qsort`, C++ `std::sort`) | surfaces: Swift library (`GPUQuicksort`), CLI (`gpuqsort`), build script (`scripts/build-metallib.sh`)
 > - **Sources:** `gpu-quicksort.md` — D. Cederman and P. Tsigas, *GPU-Quicksort: A Practical Quicksort Algorithm for Graphics Processors*, ACM JEA 14, Art. 1.4 (2009); cited below as **[P §n]** (sections), **[P Alg n]** (Algorithms 1–3), **[P Fig n]**, **[P Tab n]**. Local build host observed while drafting: Apple M5 Max, macOS 26.6, Swift 6.4, Xcode Metal toolchain.
 > - **Scope of this document:** the sorting algorithm (host orchestration + Metal kernels), its Swift API, the benchmark/verification CLI, the input-distribution generators of [P §5.3], and the tests. Not in scope: the other GPU sorts the paper compares against (GPUSort, radix, hybrid), key–value sorting, stable sorting, non-Apple GPUs.
@@ -97,7 +97,7 @@ Mapping of the paper's CUDA vocabulary used throughout this spec:
 | **R-25** | The shipped package MUST contain a valid tuned-parameter table (C-10) at every commit. Before the first tuning run it holds only the bootstrap entry `paper-8800gtx` (the [P Tab II] 8800GTX constants), with `apple-default` pointing at it. The conforming release MUST additionally contain an entry for the reference machine (Apple M5 Max) produced by R-24, with `apple-default` pointing at that entry (D-16). |
 | **R-26** | `bench --cpu` MUST time three CPU baselines on the same input: `cpu-swift` (Swift `Array.sort()`), `cpu-qsort` (libc `qsort`), and `cpu-stdsort` (C++ `std::sort`). Each sorts the C-04 codes as `UInt32` (C-11). Correctness is always judged against CPUReference (Swift `Array.sort()`) (D-12). |
 | **R-27** | The Metal code MUST be delivered as `.metallib` files precompiled by `scripts/build-metallib.sh` and loaded at `init` with `MTLDevice.makeLibrary(URL:)`. The library MUST NOT compile MSL source at runtime. The package MUST fail its test suite if a shipped `.metallib` is stale relative to its source (C-09, D-05). |
-| **R-28** | Ordering inside one `lqsort` threadgroup (Metal device memory is not coherent between threads without a barrier): (a) the gap fill of a partition MUST NOT begin until every thread has finished pass 2 of that partition; (b) before any thread reads elements that other threads of the same threadgroup wrote to device memory (the next popped sequence, or an alternative-sort load), the threadgroup MUST execute `threadgroup_barrier(mem_flags::mem_device | mem_flags::mem_threadgroup)`; (c) the alternative sort MUST finish loading its sequence into threadgroup memory, followed by a threadgroup barrier, before any thread writes the result back to $D$. The same rule (a) applies to `gqsort_partition` pass 2 versus the counters of pass 1. |
+| **R-28** | Ordering inside one threadgroup (`lqsort`; rule (a) also for `gqsort_partition`), because Metal device memory is not coherent between threads without a barrier: (a) the gap fill of a partition MUST NOT begin until every thread has finished pass 2 of that partition; (b) before any thread reads elements that other threads of the same threadgroup wrote to device memory (the next popped sequence, or an alternative-sort load), the threadgroup MUST execute `threadgroup_barrier(mem_flags::mem_device | mem_flags::mem_threadgroup)`; (c) the alternative sort MUST finish loading its sequence into threadgroup memory, followed by a threadgroup barrier, before any thread writes the result back to $D$. The same rule (a) applies to `gqsort_partition` pass 2 versus the counters of pass 1. |
 
 ### 2.5 Optional items
 
@@ -194,7 +194,8 @@ public final class GPUQuicksort: @unchecked Sendable {
     public var metallibSHA256: String { get }        // contents of Resources/metallib.sha256 (C-09)
 
     /// Receives every diagnostic line of R-22 / §5.3, synchronously, on the thread that called sort.
-    /// Set it before calling sort; it is read under the same lock that serializes sort calls.
+    /// Getter and setter take the lock that serializes sort calls; a set during a running sort
+    /// blocks until that sort returns and takes effect for the next sort.
     public var diagnostics: (@Sendable (String) -> Void)?
 
     /// Sorts `count` keys starting at byte 0 of `buffer`. buffer.storageMode MUST be .shared.
@@ -246,7 +247,7 @@ public struct SortReport: Sendable, Codable, Equatable {
     public var gpuTime: Double               // seconds, Σ (gpuEndTime − gpuStartTime) over all command buffers
     public var phaseOneIterations: Int       // 0 when phase one is skipped
     public var phaseOneSequences: Int        // |done| handed to phase two
-    public var phaseOneCapReached: Bool      // K-07 triggered
+    public var phaseOneCapReached: Bool      // K-07: iterations == max AND the R-08 loop condition still held
     public var phaseTwoPartitions: Int       // Σ partitions over all lqsort threadgroups
     public var phaseTwoAltSorts: Int         // Σ alternative sorts (R-15)
     public var maxStackDepth: Int            // max over threadgroups of the stack high-water mark:
@@ -391,6 +392,7 @@ Sources/GPUQuicksort/Resources/GPUQuicksort-testhooks.metallib  // built with -D
 Sources/GPUQuicksort/Resources/metallib.sha256      // stamp: SHA-256 of the inputs (below)
 Sources/GPUQuicksort/Resources/TunedParameters.json // C-10
 Sources/CShared/include/SharedTypes.h               // C-05/C-06 layouts; public header of the C target CShared
+Sources/CShared/CShared.c                           // empty translation unit (SwiftPM needs one source file)
 Sources/CPUBaselines/              // C/C++ target: qsort + std::sort shim (C-11)
 Sources/gpuqsort/                  // executable target, depends on swift-argument-parser
 Tests/GPUQuicksortTests/           // swift-testing (T-xx)
@@ -431,7 +433,7 @@ This is the bootstrap table that ships until the first tuning run (R-25). After 
 - **Lookup** (for `.bundled` and `.file`): use the exact `MTLDevice.name`; otherwise `apple-default` (following one `sameAs` hop). The result is exposed as `GPUQuicksort.tuning` (C-01), where `entry` is the key finally used (after the hop) and `exactMatch` tells whether the device name matched. `.constants` bypasses the table.
 - **Validation at `init`:** for a table, `schema == 1`, `apple-default` is present, `sameAs` targets exist and are not themselves `sameAs`; for every entry and for `.constants`, every $k \geq 0$ and $m \geq 1$, and all values are finite. Otherwise `init` throws `tunedParametersInvalid`.
 - **Fit (R-24):** for parameter $x$, with measured best values $x_j$ at sizes $s_j$ ($j = 1..J$, $J \geq 2$), $(k, m)$ minimize $\sum_j (k s_j + m - x_j)^2$ (ordinary least squares, as in [P §5.3]). If $k < 0$, set $k = 0$ and $m = \bar{x}$. Then set $m = \max(m, 1)$. With $J = 1$: $k = 0$, $m = x_1$.
-- **`--write`:** replace or insert the entry for `MTLDevice.name`, keep the other entries, and write sorted keys with 2-space indentation. With `--as-default`, also set `apple-default` to `{"sameAs": <name>}`. The file path defaults to the package resource path in the source tree (`--table <path>` overrides it).
+- **`--write`:** the table file is validated *before* the grid search starts. (1) If the file does not exist, `tune` creates a table holding only the new entry, with `apple-default` pointing at it whether or not `--as-default` is given. (2) If the file exists and is a valid C-10 table, `tune` replaces or inserts the entry for `MTLDevice.name`, keeps the other entries, and with `--as-default` also sets `apple-default` to `{"sameAs": <name>}`. (3) If the file exists but is not a valid C-10 table, `tune` exits 4 with `gpuqsort: error: table <path> is not a valid tuned-parameter table: <reason>` before measuring anything, and leaves the file unchanged. The written table MUST itself pass C-10 validation; it is written with sorted keys and 2-space indentation, via a temporary file and an atomic rename (E-23). Without `--write`, the table file is never read. The file path defaults to the package resource path in the source tree (`--table <path>` overrides it).
 
 ### C-11 CPU baselines (C/C++ shim)
 
@@ -443,7 +445,7 @@ void cpub_qsort_u32(uint32_t *keys, size_t n);    // libc qsort with a (a>b)-(a<
 void cpub_stdsort_u32(uint32_t *keys, size_t n);  // std::sort(keys, keys+n), compiled -O3, C++17
 ```
 
-`cpu-swift` is `[UInt32].sort()` on the codes. For `int32`/`float32`, every baseline's timed region includes the CPU encode and decode of C-04 (the GPU's timing includes its encode/decode too), so the comparison is end-to-end on the same input and output. The baseline implementations MUST be built in release configuration when benchmarked, and `bench` refuses to run from a debug build unless `--allow-debug` is passed (exit 2).
+`cpu-swift` is `[UInt32].sort()` on the codes. For `int32`/`float32`, every baseline's timed region includes the CPU encode and decode of C-04 (the GPU's timing includes its encode/decode too), so the comparison is end-to-end on the same input and output. The baseline implementations MUST be built in release configuration when benchmarked. `bench` and `tune` refuse to run from a debug build unless `--allow-debug` is passed (exit 2), and recorded runs (T-32, T-34) MUST use a release build.
 
 ## 5. Interface specification
 
@@ -468,11 +470,11 @@ Global flags: `--verbose` (R-22), `--table <path>` (use `TuningSource.file(path)
 | `sort` | `--in` (required), `--out` (required), `--key uint32`, tuning flags | reads, sorts, writes | output file as `gen`; report on stderr only if `--verbose` |
 | `verify` | `--dist all`, `--n 1K,1M`, `--key all`, `--seed 42`, `--runs 1`, tuning flags | sorts each (dist, n, key) and compares bit-for-bit against CPUReference (T-01) | one line per case `PASS`/`FAIL dist n key` on stdout; exit 1 if any FAIL |
 | `bench` | `--dist all`, `--n 1M,2M,4M,8M,16M`, `--key uint32`, `--runs 5`, `--seed 42`, `--cpu` (include the three CPU baselines, R-26), `--allow-debug`, `--format csv`, tuning flags | R-23 timing; the oracle output is computed once per (key, dist, $n$, seed) with CPUReference, and each timed run is verified by a byte comparison against it; a mismatch aborts with exit 1 after flushing the rows already produced | CSV or JSON (below) on stdout |
-| `tune` | `--n 512K,1M,2M,4M,8M,16M`, `--dist uniform`, `--key uint32`, `--runs 3`, `--seed 42`, `--write`, `--as-default`, `--table <path>` | grid search over every valid combination (K-04, K-03) of $T \in \{32, 64, 128, 256, 512, 1024\}$, $\mathit{maxseq} \in \{32, 64, \ldots, 4096\}$ and $\mathit{minseq} \in \{64, 128, \ldots\}$; per size, one warm-up and `--runs` timed runs per configuration, each verified by a byte comparison against an oracle computed once per size; best = lowest median `wall_ms`, ties broken by smaller $T$, then smaller $\mathit{maxseq}$, then smaller $\mathit{minseq}$; fit per C-10; progress is printed to stderr only with `--verbose` | JSON on stdout: `{device, gpuqsort_version, metallib_sha256, os_version, sizes, best:[{n,threads,maxseq,minseq,wall_ms}], fit:{threads:{k,m},maxseq:{k,m},minseq:{k,m}}, grid:[{n,threads,maxseq,minseq,median_ms}]}`; with `--write`, also updates C-10 |
+| `tune` | `--n 512K,1M,2M,4M,8M,16M`, `--dist uniform`, `--key uint32`, `--runs 3`, `--seed 42`, `--write`, `--as-default`, `--table <path>`, `--allow-debug` | grid search over every valid combination (K-04, K-03) of $T \in \{32, 64, 128, 256, 512, 1024\}$, $\mathit{maxseq} \in \{32, 64, \ldots, 4096\}$ and $\mathit{minseq} \in \{64, 128, \ldots\}$; per size, one warm-up and `--runs` timed runs per configuration, each verified by a byte comparison against an oracle computed once per size; best = lowest median `wall_ms`, ties broken by smaller $T$, then smaller $\mathit{maxseq}$, then smaller $\mathit{minseq}$; fit per C-10; progress is printed to stderr only with `--verbose` | JSON on stdout: `{device, gpuqsort_version, metallib_sha256, os_version, sizes, best:[{n,threads,maxseq,minseq,wall_ms}], fit:{threads:{k,m},maxseq:{k,m},minseq:{k,m}}, grid:[{n,threads,maxseq,minseq,median_ms}]}`; with `--write`, also updates C-10 |
 
 Tuning flags, shared by `sort`, `verify`, `bench`: `--threads T`, `--maxseq N`, `--minseq N`, `--pivot median|minmax`.
 
-`bench` CSV header (exact, one row per timed run):
+`bench` CSV (RFC 4180: a field containing a comma, double quote or newline is enclosed in double quotes, with inner double quotes doubled). Header (exact, one row per timed run):
 
 ```text
 device,key,distribution,n,run,algorithm,wall_ms,gpu_ms,threads,maxseq,minseq,phase1_iterations,phase1_sequences,max_stack_depth,verified,gpuqsort_version,metallib_sha256,tuning_entry,os_version
@@ -515,7 +517,7 @@ There is no GUI surface, so no reference images apply.
 | **K-04** | Validity: $T$ is a power of two with $32 \leq T \leq \min(1024, \mathit{maxThreadsPerThreadgroup})$; $1 \leq \mathit{maxseq} \leq 2^{16}$; $\mathit{minseq}$ is a power of two with $64 \leq \mathit{minseq}$ and satisfies K-03; $1 \leq \mathit{maxPhaseOneIterations} \leq 1024$. A defaulted value is clamped into its valid range (for a power-of-two parameter, to the nearest valid power of two), in this order: $T$ first, then $\mathit{maxseq}$, then $\mathit{minseq}$ (whose K-03 bound depends on $T$). An explicit invalid value throws `invalidParameters`. $\mathit{maxseq} = 1$ is valid and disables phase one (R-03). |
 | **K-05** | Default parameters. With $s = n$, $\mathit{optp}(s, k, m) = 2^{\lfloor \log_2(s k + m) + 0.5 \rfloor}$ [P §5.3]. Defaults: $T = \mathit{optp}(n, k_T, m_T)$, $\mathit{maxseq} = \mathit{optp}(n, k_M, m_M)$, $\mathit{minseq} = \mathit{optp}(n, k_S, m_S)$, with the constants from the C-10 entry in effect for the device (D-06), then clamped per K-04. The paper's 8800GTX constants ($0.00001172, 53$; $0.00003748, 476$; $0.00004685, 211$) are no longer defaults. They remain valid inputs for tests (T-20). |
 | **K-06** | Phase-one splitting: $\mathit{minlength} = \lceil n / \mathit{maxseq} \rceil$ and $\mathit{blocksize} = \max\!\left(T, \left\lceil \sum_{w \in \mathit{work}} \lVert w \rVert / \mathit{maxseq} \right\rceil\right)$. |
-| **K-07** | Phase one performs at most $\mathit{maxPhaseOneIterations}$ (default 64) iterations. When the cap is reached, `work` is merged into `done` and `phaseOneCapReached` is `true` (D-08). |
+| **K-07** | Phase one performs at most $\mathit{maxPhaseOneIterations}$ (default 64) iterations. `phaseOneCapReached` is `true` iff $\mathit{phaseOneIterations} = \mathit{maxPhaseOneIterations}$ and the R-08 loop condition still holds after that iteration; in that case `work` is merged into `done` (D-08). If the loop condition becomes false exactly at the last permitted iteration, `phaseOneCapReached` is `false`. |
 | **K-08** | Phase-two stack capacity is 32 entries. Depth is counted as in C-02 `maxStackDepth`. With R-13, the depth for a sequence of length $\ell$ is at most $\lceil \log_2(\ell / \mathit{minseq}) \rceil + 2 \leq 27$ under K-01 and K-04, so the capacity is never reached by a correct implementation. |
 | **K-09** | Space [P Thm 2], for the buffer API: the auxiliary buffer is exactly $4n$ bytes (`auxiliaryBytes` $= 4n$), and `bookkeepingBytes` obeys the bound in §7.1. The auxiliary buffer MAY be cached and reused across calls when it is large enough; a cached buffer larger than $4n$ still reports $4n$ as used, and its excess is not counted. The `inout [K]` API additionally allocates one $4n$-byte shared staging buffer, which is not counted in either field. |
 | **K-10** | Complexity [P Thm 1]: on the `zero` distribution with $n \geq \mathit{minseq}$ and $\mathit{maxseq} \geq 2$, phase one performs exactly 1 iteration, no `lqsort` dispatch occurs (E-24), and phase two performs 0 partitions and 0 alternative sorts, i.e. $O(n)$ [P §5.4]. |
@@ -532,7 +534,7 @@ $$
 \mathit{bookkeepingBytes} \leq 40 M + 16 \cdot 2M + 32 \cdot 2M + 2^{16} = 136 M + 2^{16}
 $$
 
-For $n \leq 1$ (E-01, E-02) both `auxiliaryBytes` and `bookkeepingBytes` are 0.
+For $n \leq 1$ (E-01, E-02) both `auxiliaryBytes` and `bookkeepingBytes` are 0. Buffers allocated only under `GPUQS_TEST_HOOKS` (instrumentation for T-12..T-16, T-40..T-42) are excluded from `bookkeepingBytes`.
 
 ### 7.2 CLI exit codes (K-12)
 
@@ -540,9 +542,9 @@ For $n \leq 1$ (E-01, E-02) both `auxiliaryBytes` and `bookkeepingBytes` are 0.
 | ---: | ---------- |
 | 0 | success |
 | 1 | a verification failed in `verify`, `bench` or `tune` (E-22) |
-| 2 | argument parsing error; `invalidParameters` (E-05); `--n` above `maxKeys` in `gen`, `verify`, `bench` or `tune`; `bench` from a debug build without `--allow-debug` |
+| 2 | argument parsing error; `invalidParameters` (E-05); `--n` above `maxKeys` in `verify`, `bench` or `tune`, or above $2^{31} - 1$ in `gen` (which never creates a Metal device); `bench` or `tune` from a debug build without `--allow-debug` |
 | 3 | `noMetalDevice`, `unsupportedDevice`, `shaderLibraryMissing`, `shaderLibraryLoadFailed`, `tunedParametersInvalid` (E-18, E-20) |
-| 4 | unreadable or unwritable file; input size not a multiple of 4 (E-15); input file holding more than `maxKeys` keys (`tooManyKeys`); table write failure (E-23) |
+| 4 | unreadable or unwritable file; input size not a multiple of 4 (E-15); input file holding more than `maxKeys` keys (`tooManyKeys`); table write failure (E-23); invalid existing table under `tune --write` (E-25) |
 | 5 | `allocationFailed`, `gpuExecutionFailed`, `internalInvariantViolated`; `bufferNotShared` or `bufferTooSmall` (which the CLI cannot trigger with its own buffers, so they indicate an internal defect) |
 
 ## 8. Edge cases and failure semantics
@@ -573,10 +575,11 @@ For $n \leq 1$ (E-01, E-02) both `auxiliaryBytes` and `bookkeepingBytes` are 0.
 | **E-22** | `tune` hits a verification failure in any run | Aborts with exit 1, naming the configuration and size, and does not write the table even if `--write` was given. |
 | **E-23** | `tune --write` cannot write the table file | Exit 4 with the OS error text. The existing file is left unchanged (write to a temp file, then atomic rename). |
 | **E-24** | `done` is empty after phase one (every element was finalized by gap fills, e.g. the `zero` distribution) | No `lqsort` command buffer is encoded or committed; the sort proceeds to Decoding; `phaseOneSequences = 0`, `phaseTwoPartitions = 0`, `phaseTwoAltSorts = 0`, `maxStackDepth = 0`. |
+| **E-25** | `tune --write` with a table file that exists but is not a valid C-10 table | Exit 4 with `table <path> is not a valid tuned-parameter table: <reason>` before any measurement; the file is unchanged (C-10 `--write` rule 3). |
 
 ## 9. Acceptance criteria, tests, and evals
 
-Tests use swift-testing and run with `swift test` (debug configuration, so test hooks are present, D-21) on a machine that meets K-02. Tests marked *(recorded)* store their result in `SPEC_BUILD_REPORT.md` §Performance; a suite test checks that the recorded section exists.
+Tests use swift-testing and run with `swift test` (debug configuration, so test hooks are present, D-21) on a machine that meets K-02. Tests marked *(recorded)* store their result in `SPEC_BUILD_REPORT.md`: performance and tuning runs (T-32..T-34) in §Performance, and the code inspection (T-17) in §Inspection. A suite test checks that each recorded section exists. A recorded test whose record does not exist yet is declared `.disabled(if: …)` with a reason naming its ids. Such a skip means those ids are *verification pending*, and a build report MUST NOT claim conformance while any test is skipped for that reason.
 
 ### 9.1 Correctness (deterministic, GPU)
 
@@ -594,7 +597,7 @@ Tests use swift-testing and run with `swift test` (debug configuration, so test 
 | **T-10** | Iteration cap: `uniform` with $n = 2^{20}$, $\mathit{maxseq} = 1024$ and `maxPhaseOneIterations = 1`: `phaseOneIterations == 1`, `phaseOneCapReached == true`, `phaseOneSequences == 2` minus the number of empty children, and the output is correct. With `maxPhaseOneIterations = 64` on the same input, `phaseOneCapReached == false`. Proves K-07, R-08. |
 | **T-11** | For `uniform` $n = 2^{22}$ with $\mathit{minseq} = 64$, and for `sorted`: `maxStackDepth` (counted per C-02) $\leq \lceil \log_2(\ell_{\max} / 64) \rceil + 2$, where $\ell_{\max}$ is the longest phase-two input sequence (exposed through a test hook). Proves R-13, K-08. |
 | **T-12** | Fault injection (test hooks, D-21): force the stack capacity to 2 and check that `internalInvariantViolated` is thrown and that the next sort on the same instance succeeds. Separately, corrupt a `SequenceRecord` cursor after a phase-one dispatch (hook) and check that the read-back check throws `internalInvariantViolated`. Proves E-10. |
-| **T-40** | Phase-two adversarial inputs, with $\mathit{maxseq} = 1$ (so a single `lqsort` threadgroup handles the whole input, R-03) and $\mathit{minseq} = 64$, $n = 2^{14}$: organ-pipe ($0, 1, \ldots, n/2 - 1, n/2 - 1, \ldots, 0$), sawtooth ($k \bmod 257$), Musser's median-of-3 killer sequence [Musser 1997], and reverse-sorted input. Each output equals CPUReference, and `maxStackDepth` $\leq 27$ (K-08). Proves E-13, K-08, R-13. |
+| **T-40** | Phase-two adversarial inputs, with $\mathit{maxseq} = 1$ (so a single `lqsort` threadgroup handles the whole input, R-03) and $\mathit{minseq} = 64$, $n = 2^{14}$: organ-pipe ($0, 1, \ldots, n/2 - 1, n/2 - 1, \ldots, 0$), sawtooth ($k \bmod 257$), a median-of-3 killer for this pivot rule, built on the CPU by simulating R-14 on index positions (repeatedly assign the next-smallest value to the position of the median-of-three sample's second-smallest slot of the current range, then recurse on the larger side) with the result recorded as a fixture, and reverse-sorted input. Each output equals CPUReference, and `maxStackDepth` $\leq 27$ (K-08). Proves E-13, K-08, R-13. |
 | **T-41** | O-2: with `phaseOnePivot = .minMaxAverage`, on `fullrange` for `int32` and `float32` (codes above $2^{31}$ exercise the overflow-free formula), `zero`, `sorted` and `uniform` at $n = 2^{20}$: outputs equal CPUReference; a test hook checks that every phase-one child is strictly shorter than its parent (I-005) and that each child's pivot equals $\mathit{lo} + \lfloor (\mathit{hi} - \mathit{lo})/2 \rfloor$ computed on the CPU from the child's actual contents; for `uniform`, `phaseOneCapReached == false`. Proves O-2, I-005. |
 | **T-42** | E-09 fault injection: a test hook in the command runner reports the $k$-th committed command buffer as failed with a synthetic `NSError`, for $k \in \{1, 2, \text{last}\}$ of a `uniform` $n = 2^{20}$ sort. `sort` throws `gpuExecutionFailed` carrying the error's description; the next sort on the same instance succeeds. The CLI (debug build, environment variable `GPUQS_TEST_FAIL_CB=<k>`) exits 5 with `gpuqsort: error: gpuExecutionFailed …`. Proves E-09, K-12. |
 
@@ -628,22 +631,22 @@ Tests use swift-testing and run with `swift test` (debug configuration, so test 
 | **T-25** | Golden values: for each C-08 distribution with $n = 1024$ and seed 42, the SHA-256 of the `gen` output equals the value committed in `Tests/Fixtures/golden.json`. The fixture is produced once from an independent Python reference script checked in with it, which implements C-08 as written (including the 64-bit `gaussian` sum and the draw order $4k .. 4k+3$). Also: MT19937 seeded with 5489 gives 3499211612 as its first output. Proves R-20, C-08. |
 | **T-26** | Distribution properties for $n = 2^{20}$: every value is $< 2^{31}$; `sorted` is non-decreasing; `zero` is constant; `bucket` values of section $S$ lie in $[S w, (S+1) w)$; `staggered` block $i$ lies in the D-07 range; the `gaussian` mean is within 1% of $2^{30}$. Proves C-08, D-07. |
 | **T-27** | CLI: `gen` then `sort` then compare with `verify`'s oracle gives exit 0. `sort` on a 4097-byte file exits 4 with the E-15 message. `--threads 48` exits 2. Missing `--dist` exits 2. `gen --n` above `maxKeys` exits 2. `--table` pointing at an invalid table exits 3. `sort --out` into a read-only directory exits 4. Each case matches its §7.2 row. Proves R-19, K-12, E-15. |
-| **T-28** | `bench --n 1M --runs 3 --dist uniform --cpu` emits the exact §5.2 header, $3 \times 4$ data rows (one `gpu-quicksort` and three `cpu-*` algorithms; the warm-up run is not emitted), `verified=true` on every row, provenance columns equal to `info --json`'s `version` and `metallibSHA256` and the tuning entry in effect, and nothing on stderr without `--verbose`. Proves R-23, R-22, R-26, §5.2. |
+| **T-28** | `bench --n 1M --runs 3 --dist uniform --cpu --allow-debug` (the test build is debug, D-21) emits the exact §5.2 header, $3 \times 4$ data rows (one `gpu-quicksort` and three `cpu-*` algorithms; the warm-up run is not emitted), `verified=true` on every row, provenance columns equal to `info --json`'s `version` and `metallibSHA256` and the tuning entry in effect, and nothing on stderr without `--verbose`. Proves R-23, R-22, R-26, §5.2. |
 | **T-29** | Library: a `diagnostics` handler receives, per sort, `phaseOneIterations` lines matching the §5.3 `phase1` format with $i = 1, 2, \ldots$, then exactly one line matching the `sort` format whose fields equal the returned `SortReport`. CLI: `--verbose` writes the same lines to stderr. No line contains a key value (checked with the `zero` distribution's constant $c$, which MUST NOT appear). Proves R-22, C-01. |
 | **T-30** | `info --json` decodes as the §5.2 object: `limits.maxKeys` follows K-01, `tuning` equals `GPUQuicksort.tuning`, `metallibSHA256` equals the stamp file, and `defaults` equals `resolvedParameters` for both sizes. The human output contains the same values. Proves C-03, C-10, K-01. |
 | **T-35** | Stamp check: the SHA-256 of `Sources/GPUQuicksort/Metal/GPUQuicksort.metal` followed by `Sources/CShared/include/SharedTypes.h` equals `Resources/metallib.sha256`, and both `.metallib` resources exist and load with `makeLibrary(URL:)` exposing all five kernel names. Proves R-27, C-09, E-19. |
 | **T-36** | `scripts/build-metallib.sh` run with `OUT_DIR` set to a temporary directory (C-09) exits 0 and produces loadable libraries plus a stamp equal to the checked-in one. When run on a copy of the source with a syntax error injected, it exits non-zero and leaves the previous outputs unchanged. Skipped with a message when `xcrun metal` is unavailable. Proves C-09, R-27. |
 | **T-37** | C-10 loader: the shipped table validates with `.bundled`; tables passed with `.file(URL)` that lack `apple-default`, contain $k < 0$ or $m < 1$, contain a `sameAs` chain, or are malformed JSON each make `init` throw `tunedParametersInvalid`, as does `.constants` with $m = 0$; with a table lacking the host device's name, `tuning.entry` is `apple-default`'s target and `tuning.exactMatch == false`. Fit unit tests: points $(1, 3), (2, 5), (3, 7)$ give $(k, m) = (2, 1)$; decreasing data gives $k = 0$, $m = \bar{x}$; $J = 1$ gives $(0, x_1)$. The CLI exits 3 on an invalid table. Proves C-10, E-20, E-21. |
-| **T-38** | `tune --n 64K,128K --runs 1 --table <tmp>` with a reduced grid (test flag `--grid small`) succeeds even when `<tmp>` initially holds an invalid table (because `tune` uses `.constants(.paper8800GTX)`, R-24), emits JSON matching §5.2, computes the CPU oracle exactly once per size (hook counter), and `--write` updates only the host device's entry, atomically. An injected verification failure aborts with exit 1 and leaves the table unchanged; an unwritable path exits 4. Proves R-24, C-10, E-22, E-23. |
+| **T-38** | `tune --n 64K,128K --runs 1 --grid small --allow-debug` (reduced grid test flag): (a) without `--write`, with `--table` pointing at an invalid file, it succeeds (the table is never read) and emits JSON matching §5.2; it computes the CPU oracle exactly once per size (hook counter); (b) with `--write --table <tmp>` where `<tmp>` is a valid table, only the host device's entry changes and the result validates; (c) with `--write` and a missing `<tmp>`, the file is created with `apple-default` pointing at the new entry and validates; (d) with `--write` and an invalid `<tmp>`, it exits 4 before measuring (hook: zero sorts performed) and the file is byte-identical; (e) an injected verification failure aborts with exit 1 and leaves the table unchanged; (f) an unwritable path exits 4; (g) without `--allow-debug` it exits 2. Proves R-24, C-10, E-22, E-23, E-25. |
 | **T-39** | `cpub_qsort_u32`, `cpub_stdsort_u32` and `cpu-swift` produce output identical to CPUReference for every C-08 distribution and key type at $n \in \{0, 1, 2, 1000, 10^6\}$. `bench` from a debug build exits 2 without `--allow-debug`. Proves R-26, C-11. |
 
 ### 9.5 Performance (recorded)
 
 | ID | Test |
 | -- | ---- |
-| **T-32** *(recorded)* | `bench --dist all --n 1M,2M,4M,8M,16M --runs 5 --cpu` on the reference machine, after T-34, recorded as a table analogous to [P Fig 4] with median `wall_ms` for all four algorithms. The K-13 ratio is reported for `uniform` 16M. The suite checks that the table exists. Proves K-13. |
+| **T-32** *(recorded)* | `bench --dist all --n 1M,2M,4M,8M,16M --runs 5 --cpu` from a release build on the reference machine, after T-34, recorded as a table analogous to [P Fig 4] with median `wall_ms` for all four algorithms. The K-13 ratio is reported for `uniform` 16M. The suite checks that the table exists. Proves K-13. |
 | **T-33** *(recorded)* | Scaling check: median `wall_ms` from 1M to 16M `uniform` grows by a factor in $[12, 24]$ (near-linear in $n \log n / p$, [P Thm 1]). The result is recorded. This is the empirical check of [P Thm 1] and has no gating id. |
-| **T-34** *(recorded)* | `gpuqsort tune --write --as-default` on the reference machine (Apple M5 Max): the full JSON output, the elapsed time (K-14), and the fitted $(k, m)$ triples are recorded as the Apple analogue of [P Tab II] and [P Fig 11]. The suite checks that the recorded section exists, that the shipped C-10 table has an `Apple M5 Max` entry whose `fitted` date matches the recording, and that `apple-default` is `{"sameAs": "Apple M5 Max"}`. Before the first tuning run, the presence check reports *pending* rather than failing. Proves R-24, R-25, K-14. |
+| **T-34** *(recorded)* | `gpuqsort tune --write --as-default` from a release build on the reference machine (Apple M5 Max): the full JSON output, the elapsed time (K-14), and the fitted $(k, m)$ triples are recorded as the Apple analogue of [P Tab II] and [P Fig 11]. The suite checks that the recorded section exists, that the shipped C-10 table has an `Apple M5 Max` entry whose `fitted` date matches the recording, and that `apple-default` is `{"sameAs": "Apple M5 Max"}`. Before the first tuning run, the check is skipped with `.disabled(if: <no Apple M5 Max entry>, \"tuning not yet recorded (R-25, T-34)\")`, which makes R-25 *verification pending* (§9 intro). Proves R-24, R-25, K-14. |
 
 ## 10. Dependencies and environment
 
@@ -742,6 +745,7 @@ Tests use swift-testing and run with `swift test` (debug configuration, so test 
 | E-22 | `Tuner` | T-38 |
 | E-23 | `Tuner` writer | T-38 |
 | E-24 | `Sorter` | T-08 |
+| E-25 | `Tuner` table validation | T-38 |
 | ~~O-1~~ | retired in v0.2: `tune` is required (R-24) | — |
 | O-2 | `PhaseOnePivot.minMaxAverage`, `gqsort_partition` min/max reduction and atomics | T-03, T-14, T-41 |
 
@@ -769,10 +773,23 @@ Tests use swift-testing and run with `swift test` (debug configuration, so test 
 | D-18 | Detecting a stale `.metallib` | SHA-256 stamp of `.metal` + `.h` checked by the test suite | compare file modification times; a CI job rebuilds and diffs the output | R-27, E-19, T-35, T-36 | implementer / confirm |
 | D-19 | CPU baselines' timed region for `int32`/`float32` | includes the CPU C-04 encode/decode, to match the GPU's end-to-end timing | sort native types directly (`Float` comparisons break on NaN) | C-11, R-26 | implementer / confirm |
 | D-20 | O-2 root pivot (the root's min and max are unknown before any partition) | `medianOfThree` for the root, min/max-average afterwards | an extra `minmax_reduce` dispatch over $[0, n)$, matching [P §5.2] literally | O-2, T-41 | implementer / confirm |
-| D-21 | Where test hooks are compiled | debug configuration of the library and CLI (`.when(configuration: .debug)`), so `swift test` and CLI fault injection see them | a separate test-only target; runtime flags in release builds | C-09, §10, T-12, T-42 | implementer / confirm |
+| D-21 | Where test hooks are compiled | debug configuration of the library and CLI (`.when(configuration: .debug)`), so `swift test` and CLI fault injection see them | a separate test-only target; runtime flags in release builds | C-09, §10, T-12, T-28, T-38, T-42 | implementer / confirm |
 | D-22 | `maxseq = 1` | valid; disables phase one (R-03), which T-40 uses to drive phase two alone | raise K-04's lower bound to 2 | R-03, K-04, K-10, T-03, T-40 | implementer / confirm |
 
 ## Revision history
+
+- **v0.4 (2026-09-25):** folded in round-2 review findings F-020..F-030:
+  - **F-020:** T-28 and T-38 pass `--allow-debug`; `tune` gets the debug guard; recorded runs use release builds.
+  - **F-021:** C-10 `--write` rules for a missing, valid or invalid table; E-25; T-38 split into cases (a)–(g).
+  - **F-022:** skipped recorded tests mean *verification pending* (§9 intro); T-34 uses `.disabled(if:)`.
+  - **F-023:** R-28 title.
+  - **F-024:** `phaseOneCapReached` boundary (K-07, C-02).
+  - **F-025:** test-hook buffers excluded from §7.1.
+  - **F-026:** RFC 4180 CSV.
+  - **F-027:** `diagnostics` setter locking.
+  - **F-028:** `gen` bound is $2^{31} - 1$ and needs no Metal device.
+  - **F-029:** `CShared.c`.
+  - **F-030:** T-40 killer construction; build-report sections.
 
 - **v0.3 (2026-09-25):** folded in `SPEC_REVIEW_REPORT.md` (v0.2 review), P0 through P2:
   - **F-001:** `TuningSource` added to C-01; bootstrap table `paper-8800gtx`; `tune` independent of the table (R-24, R-25, C-10, T-20/T-34/T-37/T-38; D-16 revised).
