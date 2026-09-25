@@ -185,6 +185,10 @@ struct APITests {
         try q.sort(&ints)
         #expect(ints.map { UInt32(bitPattern: $0) } == (try gpuSort(q, ibits, .int32).0))
         #expect(zip(ints, ints.dropFirst()).allSatisfy { $0 <= $1 })
+        // E-11: the buffer API with a KeyType that differs from how the bytes were written sorts by
+        // the declared type's order, and I-002 still holds (same multiset of bit patterns).
+        let (asUInt, _) = try gpuSort(q, fbits, .uint32)
+        #expect(asUInt == fbits.sorted() && asUInt != floats.map(\.bitPattern))
     }
 
     /// T-24: an injected allocation failure throws `allocationFailed` and leaves the buffer
@@ -228,9 +232,10 @@ struct APITests {
         }
     }
 
-    /// T-42 (library half): a hook reports the k-th committed command buffer as failed for
-    /// k in {1, 2, last}: `sort` throws `gpuExecutionFailed` with the error's description and the
-    /// next sort on the same instance succeeds. Proves E-09.
+    /// T-42 (library half): a hook makes the runner observe the k-th committed command buffer as
+    /// completed with `.error` (with a Metal-domain error), for k in {1, 2, last}: the observed
+    /// status is `.error`, `sort` throws `gpuExecutionFailed` carrying that command buffer's error
+    /// description, and the next sort on the same instance succeeds. Proves E-09.
     @Test func commandBufferFailure() throws {
         let q = try #require(Self.q)
         let input = Distribution.generate(.uniform, n: 1 << 20, seed: 42, key: .float32)
@@ -239,10 +244,13 @@ struct APITests {
         #expect(last >= 3)
         for k in [1, 2, last] {
             q.sorter.runner.failCommandBuffer = k
+            var message = ""
             #expect { _ = try gpuSort(q, input, .float32) } throws: { e in
-                if case GPUQuicksortError.gpuExecutionFailed(let m) = e { return m.contains("injected failure of command buffer \(k)") }
+                if case GPUQuicksortError.gpuExecutionFailed(let m) = e { message = m; return true }
                 return false
             }
+            #expect(q.sorter.runner.commits == k && q.sorter.runner.lastStatus == .error)       // E-09
+            #expect(!message.isEmpty && message == q.sorter.runner.lastErrorDescription)
             q.sorter.runner.failCommandBuffer = nil
             #expect(try gpuSort(q, input, .float32).0 == CPUReference.sortedReference(input, .float32))
         }

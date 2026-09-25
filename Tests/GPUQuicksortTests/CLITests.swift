@@ -201,7 +201,7 @@ struct CLITests {
     }
 
     /// T-42 (CLI half): with GPUQS_TEST_FAIL_CB=2 the debug CLI exits 5 with
-    /// `gpuqsort: error: gpuExecutionFailed …`. Proves E-09, K-12.
+    /// `gpuqsort: error: gpuExecutionFailed …` (§7.2 row 5). Proves K-12.
     @Test func commandBufferFailureExit() throws {
         let dir = TS.tempDir()
         let inURL = dir.appendingPathComponent("in.bin")

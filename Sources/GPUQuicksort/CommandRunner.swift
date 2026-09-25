@@ -1,3 +1,4 @@
+import Foundation
 import Metal
 
 /// Commits one command buffer, waits for it, and maps failures to C-07 (E-09).
@@ -9,12 +10,20 @@ final class CommandRunner {
     var commits = 0
     /// Dispatches per kernel name during the current sort.
     var dispatches: [String: Int] = [:]
-    /// Test hook: report the k-th committed command buffer (1-based) of a sort as failed (T-42).
+    /// Test hook: the k-th committed command buffer (1-based) of a sort is observed as completed
+    /// with `.error` (T-42, E-09). Apple GPUs gave no bounded way to force a real `.error`
+    /// (purged buffers, page faults and non-terminating kernels were probed), so the hook
+    /// substitutes the status and a Metal-domain error at the point real statuses are checked.
     var failCommandBuffer: Int?
+    /// Test hook record: (command buffer number, kernel, threadgroups) per dispatch of the sort.
+    var dispatchLog: [(commit: Int, kernel: String, groups: Int)] = []
+    /// Test hook record: status and error text of the last completed command buffer.
+    var lastStatus: MTLCommandBufferStatus = .notEnqueued
+    var lastErrorDescription: String?
 
     init(queue: MTLCommandQueue) { self.queue = queue }
 
-    func reset() { gpuTime = 0; commits = 0; dispatches = [:] }
+    func reset() { gpuTime = 0; commits = 0; dispatches = [:]; dispatchLog = [] }
 
     /// Encodes with `body`, commits, waits. Throws `gpuExecutionFailed` if the buffer ends in error.
     func run(_ label: String, _ body: (MTLComputeCommandEncoder) throws -> Void) throws {
@@ -28,19 +37,26 @@ final class CommandRunner {
         commits += 1
         cb.waitUntilCompleted()
         gpuTime += max(0, cb.gpuEndTime - cb.gpuStartTime)
+        var status = cb.status
+        var error = cb.error
         #if GPUQS_TEST_HOOKS
         if let k = failCommandBuffer, k == commits {
-            throw GPUQuicksortError.gpuExecutionFailed("injected failure of command buffer \(k) (\(label))")
+            status = .error
+            error = NSError(domain: MTLCommandBufferErrorDomain, code: Int(MTLCommandBufferError.internal.rawValue),
+                            userInfo: [NSLocalizedDescriptionKey: "command buffer \(k) (\(label)) failed: injected by test hook"])
         }
         #endif
-        if cb.status == .error {
-            throw GPUQuicksortError.gpuExecutionFailed(cb.error?.localizedDescription ?? "\(label): unknown error")
+        lastStatus = status
+        lastErrorDescription = error?.localizedDescription
+        if status == .error {                                                            // E-09
+            throw GPUQuicksortError.gpuExecutionFailed(error?.localizedDescription ?? "\(label): unknown error")
         }
     }
 
     /// Records a dispatch for the test-hook counters and dispatches `groups` threadgroups of `t`.
     func dispatch(_ enc: MTLComputeCommandEncoder, _ name: String, groups: Int, threads t: Int) {
         dispatches[name, default: 0] += 1
+        dispatchLog.append((commits + 1, name, groups))
         enc.dispatchThreadgroups(MTLSize(width: groups, height: 1, depth: 1),
                                  threadsPerThreadgroup: MTLSize(width: t, height: 1, depth: 1))
     }

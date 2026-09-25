@@ -85,7 +85,10 @@ struct StructureTests {
 
     /// T-15: after every phase-one iteration each gap [lnext, gnext) of D holds the pivot, and
     /// the number of pivot-equal elements in the parent's input (snapshotted from the previous
-    /// iteration's children, or the input for the root) equals the gap length.
+    /// iteration's children, or the input for the root) equals the gap length. R-10: every
+    /// phase-one command buffer dispatches gqsort_partition and then gqsort_fill (the fill starts
+    /// after every partition threadgroup completed), and child pivots are derived from the
+    /// completed children (each child's median-of-three pivot matches its final contents).
     /// Proves R-06, R-10, I-004.
     @Test func gapsHoldPivots() throws {
         let q = try #require(Self.q)
@@ -104,6 +107,11 @@ struct StructureTests {
                     checked += 1
                 }
             }
+            for ch in it.children {                                                    // R-10
+                let s = (ch.src == 0 ? d : a).contents().assumingMemoryBound(to: UInt32.self)
+                let x = s[Int(ch.begin)], y = s[Int((ch.begin + ch.end) / 2)], z = s[Int(ch.end - 1)]
+                #expect(ch.pivot == max(min(x, y), min(max(x, y), z)))
+            }
             snapshots = [:]
             for ch in it.children where !ch.done {
                 let buf = (ch.src == 0 ? d : a).contents().assumingMemoryBound(to: UInt32.self)
@@ -114,6 +122,13 @@ struct StructureTests {
         let (out, r) = try gpuSort(q, input, .uint32)
         #expect(out == CPUReference.sortedReference(input, .uint32))
         #expect(checked >= r.phaseOneIterations && checked > 1)
+        let log = q.sorter.runner.dispatchLog
+        let phaseOne = Dictionary(grouping: log.filter { $0.kernel.hasPrefix("gqsort_") }, by: \.commit)
+        #expect(phaseOne.count == r.phaseOneIterations)
+        for (_, ds) in phaseOne {                                                          // R-10
+            #expect(ds.map(\.kernel) == ["gqsort_partition", "gqsort_fill"])
+            #expect(ds[0].groups == ds[1].groups)
+        }
     }
 
     /// T-16: with per-index finalization counters, every index of D is finalized exactly once
