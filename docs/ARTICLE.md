@@ -1,6 +1,10 @@
 # GPU-Quicksort, Revisited
 
-*Rebuilding a 2009 GPU sorting algorithm for Apple silicon, and proving it correct along the way*
+**By Robert Ioffe**
+
+*Rebuilding a 2009 GPU sorting algorithm for Apple silicon, and proving it correct along the way.
+The code, the specification and the proofs are at
+[github.com/rioffe/gpu-quicksort-revisited](https://github.com/rioffe/gpu-quicksort-revisited).*
 
 In 2009, Daniel Cederman and Philippas Tsigas published *GPU-Quicksort: A Practical Quicksort
 Algorithm for Graphics Processors* (ACM Journal of Experimental Algorithmics,
@@ -330,6 +334,7 @@ start as a change to the specification:
 
 | To learn about | Read |
 | --- | --- |
+| The repository: code, specification, tests and proofs | [github.com/rioffe/gpu-quicksort-revisited](https://github.com/rioffe/gpu-quicksort-revisited) |
 | Using the library or the command-line tool | [`README.md`](../README.md) |
 | How the code is organized | [`docs/ARCHITECTURE.md`](ARCHITECTURE.md) |
 | The spec-driven method and its tools | [speccheck](https://github.com/rioffe/speccheck) |
