@@ -133,6 +133,7 @@ Sources/GPUQuicksort/
   Resources/                         metallibs, stamp, TunedParameters.json
 Sources/gpuqsort/                    CLI: main, Info, Gen, SortCommand, Verify, Bench, Tuner, Common
 Tests/GPUQuicksortTests/             Oracle, Packaging, Correctness, API, Structure, CLI, Recorded suites
+proof_from_spec/                     Lean 4 model of SPEC.md and proofs of the paper's algorithms
 ```
 
 ## Verification
@@ -144,6 +145,23 @@ speccheck check --spec SPEC.md --src Sources --tests Tests \
 ```
 
 Every test cites the SPEC ids it proves in its doc comment. `SPEC_BUILD_REPORT.md` records the conformance evidence, the recorded benchmark and tuning runs, and the verdict.
+
+### Formal model (Lean 4)
+
+[`proof_from_spec/`](proof_from_spec/README.md) is a Lean 4 model of `SPEC.md` with kernel-checked proofs. It covers 50 of the spec's 88 requirement ids; the rest are carried by the tests above. The main results:
+
+- **The whole algorithm sorts.** Phase one partitions the input, then phase two sorts each resulting sequence on its own. Together they write every index exactly once, with its final value. This holds for any pivot rule, any `minseq`, `maxseq` and iteration cap.
+- **The parallel partition is correct.** Per-thread counts, a prefix sum and one atomic per side per threadgroup give exactly the partition, however the elements are split among threads and in whatever order the atomics land.
+- **Phase two's stack stays small.** The shorter-first stack never holds more than ⌊log₂(ℓ/minseq)⌋ + 1 entries, at most 25, below the 32-entry capacity.
+- **The bitonic network sorts.** The kernel's own network sorts every power-of-two length.
+- **Key codes preserve order.** The `int32` and `float32` codes are bijections, and their unsigned order matches signed order and IEEE 754 `totalOrder`.
+- **Bounds and exits hold.** The phase-one buffers can't overflow, and the exit-code and lifecycle tables have no gaps.
+
+These proofs certify the spec's model, not the Swift/Metal code. They also assume that barriers and atomics behave as the spec requires. The modeling found one spec-precision issue (F-034, overlapping transition-table rows); see [`docs/reviews/SPEC_MODEL_FINDINGS.md`](docs/reviews/SPEC_MODEL_FINDINGS.md).
+
+```bash
+cd proof_from_spec && lake build        # Lean 4.34.1, no external packages
+```
 
 ## Scope
 
