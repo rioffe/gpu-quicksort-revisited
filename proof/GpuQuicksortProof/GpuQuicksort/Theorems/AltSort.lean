@@ -191,7 +191,9 @@ theorem altsortSpec (T : Nat) (hT : 0 < T) (S : Nat → Nat) (b len : Nat)
     (∀ D x, applyW (altsortK T hT S b len) D x =
       if b ≤ x ∧ x < b + len then (((List.range len).map fun i => S (b + i)).mergeSort leB).getD (x - b) 0
       else D x) ∧
-    ((altsortK T hT S b len).map Prod.fst).Perm (List.range' b len) := by
+    ((altsortK T hT S b len).map Prod.fst).Perm (List.range' b len) ∧
+    (altsortK T hT S b len).Perm
+      ((List.range' b len).zip (((List.range len).map fun i => S (b + i)).mergeSort leB)) := by
   let xs := (List.range len).map fun i => S (b + i)
   obtain ⟨m, hPm, hlen⟩ := padLoopPow len 1 (by decide) ⟨0, rfl⟩
   have hload : agree (2 ^ m) (altLoad S b len) (net 0 (padF xs)) := by
@@ -208,7 +210,7 @@ theorem altsortSpec (T : Nat) (hT : 0 < T) (S : Nat → Nat) (b len : Nat)
   have hws : altsortK T hT S b len =
       (gridVisits T len hT).map fun i => (b + i, kLoop T hT (2 ^ m) 2 (by decide) (altLoad S b len) i) := by
     simp only [altsortK, gridVisits, List.map_flatMap, hPm]
-  refine ⟨fun D x => ?_, ?_⟩
+  refine ⟨fun D x => ?_, ?_, ?_⟩
   · rw [hws]
     by_cases h : b ≤ x ∧ x < b + len
     · simp only [h, and_self, ↓reduceIte]
@@ -224,5 +226,15 @@ theorem altsortSpec (T : Nat) (hT : 0 < T) (S : Nat → Nat) (b len : Nat)
       have := (gridMem T len hT i).1 hi; omega
   · rw [hws, List.map_map, List.range'_eq_map_range]
     exact (gridPerm T len hT).map _
+  · rw [hws]
+    refine ((gridPerm T len hT).map _).trans ?_
+    have hl : (xs.mergeSort leB).length = len := by simp [xs, List.length_mergeSort]
+    apply List.Perm.of_eq
+    apply List.ext_getElem
+    · simp
+    · intro i h1 h2
+      simp only [List.getElem_map, List.getElem_range, List.getElem_zip, List.getElem_range', Nat.one_mul]
+      simp only [List.length_map, List.length_range] at h1
+      rw [← hval i h1]; simp [List.getD_eq_getElem?_getD, hl, h1]; rfl
 
 end GpuQuicksort.Theorems

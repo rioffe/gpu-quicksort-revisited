@@ -23,6 +23,7 @@ sorting one `SortSequence` [b0, e0) of buffer `src0`. Device buffers D and A are
 | `:163-179` root: `rlen`, push if `rlen ≥ minseq` (`maxDepth = 1`), `altsort` if `0 < rlen < minseq` | `kStart` |
 | `:181-185` loop condition `ssp == 0 \|\| serr != 0` → break | `kRun` |
 | `:187-192` pop the top, `spivot = med3(S0[b], S0[(b+e)/2], S0[e-1])` | `kStep` (pop, pivot) |
+| `:198-214, 231-232` the iteration's memory effects | `iterMem` |
 | `:198-203` pass 1 counts with stride T, `scan2` | `ltCount`, `gtCount`, `scan2` |
 | `:206-212` pass 2 scatter to `Dst` (`lfrom++`, `gfrom++`) | `passWrites` |
 | `:214` gap fill `D[i] = p` over [b+L, e−G) + `GQS_FINALIZE` | `gapWrites` |
@@ -165,7 +166,21 @@ def pushChildren (minseq cap : Nat) (kids : List StackEntry) (st : List StackEnt
     else if cap ≤ st.length then (st, md, true)
     else pushChildren minseq cap cs (c :: st) (max md (st.length + 1)) serr
 
-/-- `:187-232` — one loop iteration on a non-empty stack. -/
+/-- `:198-214, 231-232` — the memory side of one iteration on [b, e) of buffer `src` with pivot p:
+partition into the other buffer, fill the gap in D, then alternative-sort the short children from
+the other buffer into D. Returns the memory, the partition, and the two write-backs. -/
+def iterMem (T : Nat) (hT : 0 < T) (minseq : Nat) (mem : Mem) (b e src p : Nat) :
+    Mem × TGPart × List (Nat × Nat) × List (Nat × Nat) :=
+  let part := tgPartition T hT (mem.buf src) p b e
+  let dst := 1 - src
+  let m1 := (mem.write dst part.scatter).write 0 part.gap
+  let wl := if 0 < part.L ∧ part.L < minseq then altsortK T hT (m1.buf dst) b part.L else []
+  let m2 := m1.write 0 wl
+  let wg := if 0 < part.G ∧ part.G < minseq then altsortK T hT (m2.buf dst) (e - part.G) part.G else []
+  (m2.write 0 wg, part, wl, wg)
+
+/-- `:187-232` — one loop iteration on a non-empty stack: pop, pivot, partition, gap, push the
+children (thread 0, before the alternative sorts), alternative-sort the short children. -/
 def kStep (T : Nat) (hT : 0 < T) (minseq cap : Nat) (st : KS) : KS :=
   match st.stack with
   | [] => st
@@ -175,25 +190,19 @@ def kStep (T : Nat) (hT : 0 < T) (minseq cap : Nat) (st : KS) : KS :=
     let src := top.src
     let S := st.mem.buf src
     let p := med3 (S b) (S ((b + e) / 2)) (S (e - 1))
-    let part := tgPartition T hT S p b e
+    let it := iterMem T hT minseq st.mem b e src p
+    let L := it.2.1.L
+    let G := it.2.1.G
     let dst := 1 - src
-    let m1 := (st.mem.write dst part.scatter).write 0 part.gap
-    let L := part.L
-    let G := part.G
     let lFirst := decide (L ≥ G)
     let lb := if lFirst then b else e - G
     let ll := if lFirst then L else G
     let shb := if lFirst then e - G else b
     let shl := if lFirst then G else L
     let pushed := pushChildren minseq cap [⟨lb, lb + ll, dst⟩, ⟨shb, shb + shl, dst⟩] rest st.maxDepth st.serr
-    let Dst := m1.buf dst
-    let wl := if 0 < L ∧ L < minseq then altsortK T hT Dst b L else []
-    let m2 := m1.write 0 wl
-    let wg := if 0 < G ∧ G < minseq then altsortK T hT (m2.buf dst) (e - G) G else []
-    let m3 := m2.write 0 wg
-    { mem := m3, stack := pushed.1, serr := pushed.2.2, partitions := st.partitions + 1,
+    { mem := it.1, stack := pushed.1, serr := pushed.2.2, partitions := st.partitions + 1,
       alts := st.alts + (if 0 < L ∧ L < minseq then 1 else 0) + (if 0 < G ∧ G < minseq then 1 else 0),
-      maxDepth := pushed.2.1, fin := st.fin ++ part.gap ++ wl ++ wg }
+      maxDepth := pushed.2.1, fin := st.fin ++ it.2.1.gap ++ it.2.2.1 ++ it.2.2.2 }
 
 /-- `:181-185` — the loop, bounded by `fuel`: stop when the stack is empty or `serr` is set. -/
 def kRun (T : Nat) (hT : 0 < T) (minseq cap : Nat) : Nat → KS → KS

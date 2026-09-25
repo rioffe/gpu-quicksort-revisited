@@ -9,3 +9,4 @@ import GpuQuicksortProof.GpuQuicksort.Theorems.Scan
 import GpuQuicksortProof.GpuQuicksort.Model.LQSort
 import GpuQuicksortProof.GpuQuicksort.Theorems.TGPartition
 import GpuQuicksortProof.GpuQuicksort.Theorems.AltSort
+import GpuQuicksortProof.GpuQuicksort.Theorems.LQSort
