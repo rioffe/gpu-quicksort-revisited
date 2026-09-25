@@ -2,3 +2,6 @@
 import GpuQuicksortSpec.GpuQuicksort.Spec
 import GpuQuicksortSpec.GpuQuicksort.Model
 import GpuQuicksortSpec.GpuQuicksort.Theorems
+import GpuQuicksortSpec.GpuQuicksort.ParallelPartition
+import GpuQuicksortSpec.GpuQuicksort.PhaseTwo
+import GpuQuicksortSpec.GpuQuicksort.Bitonic

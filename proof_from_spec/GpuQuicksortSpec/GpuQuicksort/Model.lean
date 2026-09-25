@@ -29,7 +29,10 @@ is leg A of the trust boundary — a manual, anchor-by-anchor transcription. The
 | K-01 (index arithmetic) | stated directly in `Theorems.lean` | no model element needed |
 | §4 C-01..C-03, C-05, C-06, C-09..C-11 | not modeled | API, layouts and packaging: no finite behavior table; §9 tests carry them |
 | §5 CLI surfaces, R-18..R-27 | not modeled beyond the exit map | process-level; §9 tests carry them |
-| R-05, R-07, R-09, R-10, R-28, I-007, I-008 | not modeled | GPU memory ordering and index-level placement; T-13..T-17 carry them |
+| R-04, R-09 (threads, prefix sums, atomic reservations) | `ParallelPartition.lean` | per-thread counts, exclusive scan, one fetch-and-add per side per block, in any atomic order |
+| R-13, I-008 (explicit stack, exactly-once finalization) | `PhaseTwo.lean` | stack machine over (start, contents) segments; finalized (position, value) writes |
+| R-15 (bitonic network) | `Bitonic.lean` | the kernel's `k`/`j` loops with its own `i ^ j` and `i & k` |
+| R-05, R-07, R-10, R-28, I-007 | not modeled | memory-access pattern, buffer ping-pong and GPU memory ordering; T-13..T-17 carry them |
 | K-02, K-11, K-13, K-14 | not modeled | platform, timing and performance |
 -/
 

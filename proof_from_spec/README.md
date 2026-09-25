@@ -20,6 +20,9 @@ A Lean 4 formalization of what [`SPEC.md`](../SPEC.md) v0.5 *says*: its normativ
   - 50 theorems in five sections (codes, sort model, phase one, tables, rows), plus the finding witness;
   - the deferral table mapping every id out of Lean's reach to the §9 tests that carry it;
   - the excluded table.
+- `GpuQuicksortSpec/GpuQuicksort/ParallelPartition.lean` — the **parallel partition** of R-04 and R-09: per-thread counts, an exclusive prefix sum, and one fetch-and-add per side per threadgroup.
+- `GpuQuicksortSpec/GpuQuicksort/PhaseTwo.lean` — the **phase-two stack machine** of R-13: pop, partition, finalize the gap, alternative-sort the short children, push the longer child then the shorter.
+- `GpuQuicksortSpec/GpuQuicksort/Bitonic.lean` — the **bitonic network** of R-15, with the kernel's own `k`/`j` loops, `i ^ j` pairing and `(i & k) == 0` direction.
 
 ## Commands
 
@@ -35,7 +38,7 @@ Lean proves the **model**. It cannot read a document, and it does not read the i
 | B. Lean (this project) | the model satisfies the claims the spec makes about itself, for all inputs | `lake build`, kernel-checked; `bv_decide` and `native_decide` also trust Lean's compiled evaluator for the codec and `optp` checks |
 | C. The system | the implementation behaves as specified | **not established here**: the §9 suite and speccheck carry it, outside Lean |
 
-**What is proven** (46 of the spec's 88 ids, each tagged in bold on exactly one declaration):
+**What is proven** (49 of the spec's 88 ids, each tagged in bold on exactly one declaration):
 - **The key codes (C-04):** they are bijections for every key type. Unsigned order of codes equals signed `int32` order and IEEE `totalOrder` for every pair of 32-bit patterns.
 - **The sort model:**
   - the partition is a permutation, and the gap holds exactly the pivot-equal elements;
@@ -54,9 +57,13 @@ Lean proves the **model**. It cannot read a document, and it does not read the i
   - the generator formulas stay in [0, 2^31);
   - `optp` reproduces the spec's worked examples;
   - clamping keeps defaults valid, and the K-03 memory budget holds;
-  - 32-bit index arithmetic cannot overflow, and the stack depth stays at most 27 of 32 entries.
+  - 32-bit index arithmetic cannot overflow.
+- **The paper's algorithms**, not just their results:
+  - *The parallel partition* (`parallelPartition`, R-04 and R-09). Split the sequence among threadgroups and threads in any way, and let the atomics take effect in any order. The low cursor's writes then cover exactly [s, s + L) and carry exactly the elements below the pivot, and the high cursor's writes do the same for [e − G, e). Every index of the sequence is written exactly once, by a cursor or by the gap fill (`partitionExactlyOnce`). So the stride-T thread assignment of R-05 is a speed choice, not a correctness one.
+  - *The phase-two stack machine* (`phaseTwoSorts`, R-13). For every threshold and every pivot rule that picks an element of the sequence (median-of-three does), n steps empty the stack. The finalized writes are then exactly the pairs (i, i-th smallest element). Every position of the sequence is finalized exactly once (`phaseTwoExactlyOnce`, I-008, per sequence; that phase one's gaps and phase two's sequences tile [0, n) is not proven here). In every state the stack holds at most ⌊log₂(ℓ/S)⌋ + 1 entries, whatever the pivots, which is at most 25 under K-01 and K-04 (`phaseTwoDepth`, K-08).
+  - *The bitonic network* (`bitonicSorts`, R-15). Load, pad with `0xFFFFFFFF` to any power of two P ≥ ℓ, run the kernel's network, and keep the first ℓ values: the result is the sorted sequence, for every input. The proof goes through the 0-1 principle and the half-cleaner lemma.
 
-**What is not proven here:** GPU memory ordering (R-28, I-007), index-level placement (I-008), threads, dispatches, timing, the API, the CLI surfaces and the packaging. These 41 ids, plus the "process side" of the proven ones, are listed in the deferral table in `Theorems.lean`, each with the §9 tests that carry it.
+**What is not proven here:** GPU memory ordering (R-28, I-007), dispatches, timing, the API, the CLI surfaces and the packaging. The algorithm modules *assume* that barriers and atomics behave as R-28 and R-09 say: a round of the bitonic network reads only values from before the round, and atomics on one cursor are linearizable. These 38 ids, plus the "process side" of the proven ones, are listed in the deferral table in `Theorems.lean`, each with the §9 tests that carry it.
 
 ## Findings
 

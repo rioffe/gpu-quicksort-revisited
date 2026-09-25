@@ -26,12 +26,18 @@ import Std.Tactic.BVDecide
 - *Numbers:* the distribution formulas stay in [0, 2^31); `optp` reproduces the spec's worked
   examples; clamping keeps defaults valid; the K-03 memory budget; 32-bit index arithmetic cannot
   overflow; the stack-depth arithmetic of K-08.
+- *The paper's algorithms* (in sibling modules): the parallel partition with per-thread prefix
+  sums and one fetch-and-add per side per threadgroup is the partition, for every thread split and
+  every order of the atomics (`ParallelPartition.lean`: R-04, R-09); the phase-two explicit stack
+  machine sorts, finalizes every position exactly once, and never holds more than
+  log₂(ℓ/S) + 1 entries (`PhaseTwo.lean`: R-13, I-008, K-08); the kernel's bitonic network sorts
+  every power-of-two length (`Bitonic.lean`: R-15).
 
 **What this does not prove:** anything about the implementation (`Sources/`). This project
 certifies the *spec*. The implementation's evidence is the §9 suite (56 tests, green) and the
 speccheck gate, which are not linked into Lean; a later `spec-proof` would link them. Nor does it
-model the GPU: memory ordering (R-28, I-007), index-level placement (I-008), threadgroup scheduling
-and timing are out of Lean's reach and carried by the tests named in the deferral table below.
+model the GPU: memory ordering (R-28, I-007), threadgroup scheduling and timing are out of Lean's
+reach (the algorithm modules assume that barriers and atomics behave as R-28 and R-09 say) and carried by the tests named in the deferral table below.
 
 **Trust boundary.** Leg A (the model transcribes the spec) is the correspondence table in
 `Model.lean`, manual. Leg B (the model satisfies the spec's claims) is this file, kernel-checked;
@@ -114,7 +120,7 @@ theorem mergeSortSorted (l : List Nat) : (l.mergeSort leB).Pairwise (· ≤ ·) 
     (by intro a b c h1 h2; simp [leB] at *; omega) (by intro a b; simp [leB]; omega) l
   exact h.imp (by intro a b hab; simpa [leB] using hab)
 
-/-- **R-04** (T-15): the two-pass scheme's result — lower part, gap, upper part — is a permutation of the sequence. -/
+/-- **(lemma)** (R-04, T-15): the two-pass scheme's result — lower part, gap, upper part — is a permutation of the sequence. -/
 theorem partitionPerm (p : Nat) (xs : List Nat) : (partition3 p xs).Perm xs := by
   have h1 := List.filter_append_perm (fun x => decide (x < p)) xs
   have h2 := List.filter_append_perm (fun x => decide (x = p)) (xs.filter (fun x => !decide (x < p)))
@@ -172,7 +178,7 @@ theorem qsortDeterministic (piv₁ piv₂ : List Nat → Nat) (S₁ S₂ : Nat) 
   have h₂ := qsortCorrect piv₂ S₂ xs
   exact sortedPermUnique _ _ h₁.1 h₂.1 (h₁.2.trans h₂.2.symm)
 
-/-- **R-15** (T-07): padding with 0xFFFFFFFF, sorting, and keeping the first ℓ elements equals sorting the ℓ elements. -/
+/-- **(lemma)** (R-15, T-07): padding with 0xFFFFFFFF, sorting, and keeping the first ℓ elements equals sorting the ℓ elements. The network that does the sorting is proved in `Bitonic.bitonicSorts`. -/
 theorem altSortCorrect (padTo : Nat) (xs : List Nat) (hx : ∀ x ∈ xs, x ≤ 0xFFFFFFFF) :
     altSort padTo xs = xs.mergeSort leB := by
   let pad := List.replicate (padTo - xs.length) 0xFFFFFFFF
@@ -507,7 +513,7 @@ theorem indexArithmetic (b e : Nat) (hbe : b ≤ e) (he : e ≤ keyCap) :
     b + e < 2 ^ 32 ∧ (b < e → b ≤ (b + e) / 2 ∧ (b + e) / 2 < e) := by
   simp only [keyCap] at he; omega
 
-/-- **K-08** (T-11): for ℓ ≤ 2^31 − 1 and minseq ≥ 64, ⌊log₂(ℓ/minseq)⌋ + 3 ≤ 27. Since ⌈log₂ x⌉ ≤ ⌊log₂ x⌋ + 1, the spec's depth bound ⌈log₂(ℓ/minseq)⌉ + 2 is at most 27, as K-08 states, below the 32-entry stack. -/
+/-- **(lemma)** (K-08, T-11): for ℓ ≤ 2^31 − 1 and minseq ≥ 64, ⌊log₂(ℓ/minseq)⌋ + 3 ≤ 27. Since ⌈log₂ x⌉ ≤ ⌊log₂ x⌋ + 1, the spec's depth bound ⌈log₂(ℓ/minseq)⌉ + 2 is at most 27, as K-08 states, below the 32-entry stack. -/
 theorem stackArithmetic (l S : Nat) (hl : l ≤ keyCap) (hS : minseqFloor ≤ S) :
     Nat.log2 (l / S) + 3 ≤ 27 := by
   simp only [keyCap, minseqFloor] at *
@@ -579,7 +585,7 @@ end Findings
 ## Deferral table — spec ids out of Lean's reach, and the §9 tests that carry them
 
 Every §9 test named here exists in `Tests/GPUQuicksortTests` and passes (56 tests); this model does
-not link to them. "(process side)" marks an id whose model half is tagged above.
+not link to them. "(process side)" marks an id whose model half is tagged in this library.
 
 | Spec id | Content | Carried by |
 | ------- | ------- | ---------- |
@@ -591,11 +597,11 @@ not link to them. "(process side)" marks an id whose model half is tagged above.
 | R-06 (process side) | the gap is written in D at [s + L, e − G) | T-08, T-15 |
 | R-07 | reading one buffer and writing the other | T-13 |
 | R-08 (process side) | the host loop's dispatches | T-02, T-13 |
-| R-09 | one atomic per side per threadgroup | T-14 |
+| R-09 (process side) | the kernel issues the two atomics from one thread and shares them through threadgroup memory | T-14 |
 | R-10 | fill and child derivation after the dispatch completes | T-15 |
 | R-11 | pivots follow the configured strategy | T-03 |
 | R-12 | one phase-two threadgroup per sequence | T-02, T-07 |
-| R-13 | the explicit stack and its push order | T-11, T-17 |
+| R-13 (process side) | the kernel's stack in threadgroup memory and its push order | T-11, T-17 |
 | R-14 (process side) | the kernel samples s_b, s_mid, s_(e−1) | T-01, T-17 |
 | R-15 (process side) | the bitonic network in threadgroup memory | T-07, T-16 |
 | R-16 (process side) | defaults come from the C-10 table | T-03, T-20 |
@@ -628,7 +634,7 @@ not link to them. "(process side)" marks an id whose model half is tagged above.
 | I-005 (process side) | disjoint live ranges | T-09, T-13, T-41 |
 | I-006 (process side) | buffer untouched on validation failure | T-18, T-19, T-24 |
 | I-007 | ordering only through atomics, barriers, dispatches | T-17, T-01 |
-| I-008 | each index finalized exactly once | T-16 |
+| I-008 (process side) | the kernel's finalizing writes in D, counted | T-16 |
 | K-01 (process side) | maxKeys from maxBufferLength | T-19, T-30 |
 | K-02 | platform | T-30 |
 | K-03 (process side) | pipeline memory on the device | T-18 |
