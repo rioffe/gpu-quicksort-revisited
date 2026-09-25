@@ -154,7 +154,9 @@ final class Sorter {
                 enc.setComputePipelineState(psoFill)
                 runner.dispatch(enc, "gqsort_fill", groups: nblocks, threads: t)
             }
+            #if GPUQS_TEST_HOOKS
             if let k = corruptAfterIteration, k == iteration { recs[0].lnext = recs[0].end &+ 1 }
+            #endif
 
             // Read back (E-10), derive children in the other buffer, pick their pivots.
             var nextWork: [(seq: Seq, pivot: UInt32)] = []
@@ -206,7 +208,12 @@ final class Sorter {
         let stats = bk.stats.contents().assumingMemoryBound(to: SortStats.self)
         memset(stats, 0, MemoryLayout<SortStats>.stride * done.count)
         let t = p.threadsPerThreadgroup
-        var prm = SortParams(minseq: UInt32(p.minSequenceLength), stackCap: stackCapacity,
+        #if GPUQS_TEST_HOOKS
+        let cap = stackCapacity
+        #else
+        let cap: UInt32 = 32                                  // K-08
+        #endif
+        var prm = SortParams(minseq: UInt32(p.minSequenceLength), stackCap: cap,
                              hooks: finalizeCounters == nil ? 0 : 1, _pad: 0)
         try runner.run("lqsort") { enc in
             enc.setComputePipelineState(psoLQ)

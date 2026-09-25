@@ -11,7 +11,9 @@ final class BufferPool {
     init(device: MTLDevice) { self.device = device }
 
     func make(_ bytes: Int) throws -> MTLBuffer {
+        #if GPUQS_TEST_HOOKS
         if failAllocation { failAllocation = false; throw GPUQuicksortError.allocationFailed(bytes: bytes) }
+        #endif
         guard let b = device.makeBuffer(length: max(bytes, 16), options: .storageModeShared) else {
             throw GPUQuicksortError.allocationFailed(bytes: bytes)
         }

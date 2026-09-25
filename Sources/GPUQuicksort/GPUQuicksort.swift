@@ -72,6 +72,8 @@ public final class GPUQuicksort: @unchecked Sendable {
                      parameters: Parameters = .automatic) throws -> SortReport {
         lock.lock()
         defer { lock.unlock() }
+        sorter.runner.reset()
+        let handler = _diagnostics
         // Validation happens before the buffer is touched (I-006).
         guard count >= 0, count <= limits.maxKeys else {
             throw GPUQuicksortError.tooManyKeys(count: count, max: limits.maxKeys)            // E-08
@@ -82,13 +84,18 @@ public final class GPUQuicksort: @unchecked Sendable {
                                 phaseTwoPartitions: 0, phaseTwoAltSorts: 0, maxStackDepth: 0,
                                 auxiliaryBytes: 0, bookkeepingBytes: 0, libraryVersion: Self.version,
                                 metallibSHA256: metallibSHA256, tuningEntry: tuning.entry)
-        if count <= 1 { return report }                                                      // E-01, E-02
+        if count <= 1 {                                                                      // E-01, E-02
+            Diagnostics.emit(Diagnostics.summary(report), handler)
+            return report
+        }
         guard buffer.storageMode == .shared else { throw GPUQuicksortError.bufferNotShared }   // E-06
         guard buffer.length >= 4 * count else {
             throw GPUQuicksortError.bufferTooSmall(required: 4 * count, actual: buffer.length) // E-07
         }
         let clock = ContinuousClock()
         let start = clock.now
+        sorter.diagnosticLine = { Diagnostics.emit($0, handler) }
+        defer { sorter.diagnosticLine = nil }
         let c = try sorter.run(buffer, n: count, key: keyType, p: resolved)
         report.wallTime = (clock.now - start).seconds
         report.gpuTime = sorter.runner.gpuTime
@@ -100,6 +107,7 @@ public final class GPUQuicksort: @unchecked Sendable {
         report.maxStackDepth = c.maxStackDepth
         report.auxiliaryBytes = 4 * count
         report.bookkeepingBytes = c.bookkeepingBytes
+        Diagnostics.emit(Diagnostics.summary(report), handler)
         return report
     }
 

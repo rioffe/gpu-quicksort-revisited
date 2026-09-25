@@ -124,4 +124,122 @@ import Testing
         #expect(q.tuning.entry == "Some Other GPU" && q.tuning.exactMatch == false)
         #expect(try q.resolvedParameters(for: 1000, .automatic).threadsPerThreadgroup == 128)
     }
+
+    /// T-21: the report for `uniform` n = 2^20 has auxiliaryBytes = 4n, bookkeepingBytes within
+    /// the §7.1 bound 136 M + 2^16 for the resolved M (and for M = 1 and M = 2^16), count = n,
+    /// 0 < gpuTime <= wallTime, parameters equal to resolvedParameters, and provenance fields
+    /// equal to the instance's; for n = 1 both byte counts are 0. Proves R-21, C-02, K-09, K-11.
+    @Test(.enabled(if: TS.hasGPU)) func reportFields() throws {
+        let q = try #require(Self.q)
+        let n = 1 << 20
+        let input = Distribution.generate(.uniform, n: n, seed: 21, key: .uint32)
+        for p in [Parameters.automatic, Parameters(maxSequences: 1), Parameters(maxSequences: 1 << 16)] {
+            let (out, r) = try gpuSort(q, input, .uint32, p)
+            #expect(out == CPUReference.sortedReference(input, .uint32))
+            let m = r.parameters.maxSequences
+            #expect(r.count == n && r.auxiliaryBytes == 4 * n)
+            #expect(r.bookkeepingBytes > 0 && r.bookkeepingBytes <= 136 * m + (1 << 16), "M=\(m) bytes=\(r.bookkeepingBytes)")
+            #expect(r.wallTime > 0 && r.gpuTime > 0 && r.gpuTime <= r.wallTime)
+            #expect(r.parameters == (try q.resolvedParameters(for: n, p)))
+            #expect(r.libraryVersion == GPUQuicksort.version && r.metallibSHA256 == q.metallibSHA256)
+            #expect(r.tuningEntry == q.tuning.entry && !r.metallibSHA256.isEmpty)
+        }
+        let r1 = try q.sort(Self.shared([5]), count: 1, keyType: .uint32)
+        #expect(r1.auxiliaryBytes == 0 && r1.bookkeepingBytes == 0)
+    }
+
+    /// T-22: eight concurrent tasks sort distinct arrays on one instance; all are correct
+    /// (calls are serialized, D-09). Proves E-16, C-01.
+    @Test(.enabled(if: TS.hasGPU)) func concurrentSorts() async throws {
+        let q = try #require(Self.q)
+        try await withThrowingTaskGroup(of: Bool.self) { group in
+            for i in 0..<8 {
+                group.addTask {
+                    let input = Distribution.generate(.fullrange, n: 200_000 + i * 1000, seed: UInt32(i), key: .float32)
+                    var keys = input.map { Float(bitPattern: $0) }
+                    try q.sort(&keys)
+                    return keys.map(\.bitPattern) == CPUReference.sortedReference(input, .float32)
+                }
+            }
+            for try await ok in group { #expect(ok) }
+        }
+    }
+
+    /// T-23: `sort(&[Float])` and `sort(&[Int32])` on `fullrange` n = 10^5 give the same result as
+    /// the buffer API. Proves C-01, R-17.
+    @Test(.enabled(if: TS.hasGPU)) func arrayAPI() throws {
+        let q = try #require(Self.q)
+        let n = 100_000
+        let fbits = Distribution.generate(.fullrange, n: n, seed: 23, key: .float32)
+        var floats = fbits.map { Float(bitPattern: $0) }
+        let rf = try q.sort(&floats)
+        #expect(floats.map(\.bitPattern) == (try gpuSort(q, fbits, .float32).0))
+        #expect(rf.keyType == .float32 && rf.count == n)
+        let ibits = Distribution.generate(.fullrange, n: n, seed: 24, key: .int32)
+        var ints = ibits.map { Int32(bitPattern: $0) }
+        try q.sort(&ints)
+        #expect(ints.map { UInt32(bitPattern: $0) } == (try gpuSort(q, ibits, .int32).0))
+        #expect(zip(ints, ints.dropFirst()).allSatisfy { $0 <= $1 })
+    }
+
+    /// T-24: an injected allocation failure throws `allocationFailed` and leaves the buffer
+    /// unchanged. Proves E-12, I-006.
+    @Test(.enabled(if: TS.hasGPU)) func allocationFailure() throws {
+        let q = try #require(Self.q)
+        let input = Distribution.generate(.uniform, n: 100_000, seed: 25, key: .int32)
+        let buf = Self.shared(input)
+        q.sorter.pool.failAllocation = true
+        #expect { _ = try q.sort(buf, count: input.count, keyType: .int32) } throws: { e in
+            if case GPUQuicksortError.allocationFailed = e { return true } else { return false }
+        }
+        #expect(Self.contents(buf, input.count) == input)
+        #expect(try gpuSort(q, input, .int32).0 == CPUReference.sortedReference(input, .int32))
+    }
+
+    /// T-29 (library half): a `diagnostics` handler receives, per sort, `phaseOneIterations`
+    /// lines in the §5.3 `phase1` format with i = 1, 2, ..., then exactly one `sort` line whose
+    /// fields equal the returned report; no line contains a key value. Proves R-22, C-01.
+    @Test(.enabled(if: TS.hasGPU)) func diagnosticLines() throws {
+        let q = try #require(Self.q)
+        final class Box: @unchecked Sendable { var lines: [String] = []; let l = NSLock() }
+        let box = Box()
+        q.diagnostics = { line in box.l.withLock { box.lines.append(line) } }
+        defer { q.diagnostics = nil }
+        let input = Distribution.generate(.zero, n: 1 << 20, seed: 99, key: .uint32)
+        let constant = String(input[0])
+        for data in [Distribution.generate(.uniform, n: 1 << 21, seed: 29, key: .uint32), input] {
+            box.lines = []
+            let (_, r) = try gpuSort(q, data, .uint32)
+            let p1 = box.lines.filter { $0.hasPrefix("phase1 ") }
+            #expect(p1.count == r.phaseOneIterations)
+            for (i, l) in p1.enumerated() {
+                #expect(l.range(of: #"^phase1 iter=\#(i + 1) work=\d+ done=\d+ threadgroups=\d+ ms=\d+\.\d{3}$"#, options: .regularExpression) != nil, "\(l)")
+            }
+            let s = box.lines.filter { $0.hasPrefix("sort ") }
+            #expect(s.count == 1 && box.lines.last == s.first)
+            let expected = "sort n=\(r.count) key=uint32 wall_ms=\(String(format: "%.3f", r.wallTime * 1000)) gpu_ms=\(String(format: "%.3f", r.gpuTime * 1000)) phase1_iterations=\(r.phaseOneIterations) phase1_sequences=\(r.phaseOneSequences) phase2_partitions=\(r.phaseTwoPartitions) altsorts=\(r.phaseTwoAltSorts) max_stack_depth=\(r.maxStackDepth)"
+            #expect(s.first == expected)
+            #expect(!box.lines.contains { $0.contains(constant) })
+        }
+    }
+
+    /// T-42 (library half): a hook reports the k-th committed command buffer as failed for
+    /// k in {1, 2, last}: `sort` throws `gpuExecutionFailed` with the error's description and the
+    /// next sort on the same instance succeeds. Proves E-09.
+    @Test(.enabled(if: TS.hasGPU)) func commandBufferFailure() throws {
+        let q = try #require(Self.q)
+        let input = Distribution.generate(.uniform, n: 1 << 20, seed: 42, key: .float32)
+        _ = try gpuSort(q, input, .float32)
+        let last = q.sorter.runner.commits
+        #expect(last >= 3)
+        for k in [1, 2, last] {
+            q.sorter.runner.failCommandBuffer = k
+            #expect { _ = try gpuSort(q, input, .float32) } throws: { e in
+                if case GPUQuicksortError.gpuExecutionFailed(let m) = e { return m.contains("injected failure of command buffer \(k)") }
+                return false
+            }
+            q.sorter.runner.failCommandBuffer = nil
+            #expect(try gpuSort(q, input, .float32).0 == CPUReference.sortedReference(input, .float32))
+        }
+    }
 }

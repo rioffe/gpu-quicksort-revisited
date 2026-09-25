@@ -28,9 +28,11 @@ final class CommandRunner {
         commits += 1
         cb.waitUntilCompleted()
         gpuTime += max(0, cb.gpuEndTime - cb.gpuStartTime)
+        #if GPUQS_TEST_HOOKS
         if let k = failCommandBuffer, k == commits {
             throw GPUQuicksortError.gpuExecutionFailed("injected failure of command buffer \(k) (\(label))")
         }
+        #endif
         if cb.status == .error {
             throw GPUQuicksortError.gpuExecutionFailed(cb.error?.localizedDescription ?? "\(label): unknown error")
         }
