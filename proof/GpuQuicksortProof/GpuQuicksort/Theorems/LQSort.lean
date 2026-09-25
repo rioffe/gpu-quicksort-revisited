@@ -698,4 +698,176 @@ theorem kStepInv (k S cap b0 : Nat) (tgt : List Nat) (D0 A0 : Nat → Nat) (hS :
     have f4' : mass newSegs + tm.count p ≤ mass (g' :: restS) := f4
     omega
 
+/-- **(lemma)**: the kernel loop keeps the invariant, and `mass` iterations empty the stack. -/
+theorem kRunInv (k S cap b0 : Nat) (tgt : List Nat) (D0 A0 : Nat → Nat) (hS : 0 < S)
+    (ht : tgt.Pairwise (· ≤ ·)) (hbd : ∀ x ∈ tgt, x ≤ 0xFFFFFFFF)
+    (hcap : Nat.log2 (tgt.length / S) + 1 < cap) :
+    ∀ fuel (st : KS), KInv S b0 tgt D0 A0 st →
+      KInv S b0 tgt D0 A0 (kRun (2 ^ k) (Nat.two_pow_pos k) S cap fuel st) ∧
+      (mass (st.stack.map (segOf b0 st.mem)) ≤ fuel → (kRun (2 ^ k) (Nat.two_pow_pos k) S cap fuel st).stack = [])
+  | 0, st, h => by
+    refine ⟨h, fun hm => ?_⟩
+    simp only [kRun]
+    cases hs : st.stack with
+    | nil => rfl
+    | cons top rest =>
+      exfalso
+      have gg := h.inv.1 (segOf b0 st.mem top) (by rw [hs]; exact List.mem_cons_self)
+      rw [hs] at hm
+      simp only [mass, List.map_cons, List.sum_cons] at hm
+      have := gg.2.2; omega
+  | f + 1, st, h => by
+    simp only [kRun]
+    by_cases hc : st.stack = [] ∨ st.serr = true
+    · simp only [hc, ↓reduceIte]
+      refine ⟨h, fun _ => ?_⟩
+      rcases hc with hc | hc
+      · exact hc
+      · rw [h.noErr] at hc; cases hc
+    · simp only [hc, ↓reduceIte]
+      obtain ⟨top, rest, hst⟩ : ∃ top rest, st.stack = top :: rest := by
+        cases hs : st.stack with
+        | nil => exact absurd (Or.inl hs) hc
+        | cons top rest => exact ⟨top, rest, rfl⟩
+      obtain ⟨h1, h2⟩ := kStepInv k S cap b0 tgt D0 A0 hS ht hbd hcap st h top rest hst
+      obtain ⟨i1, i2⟩ := kRunInv k S cap b0 tgt D0 A0 hS ht hbd hcap f _ h1
+      exact ⟨i1, fun hm => i2 (by omega)⟩
+
+theorem write_nil (m : Mem) (d : Nat) : m.write d [] = m := by
+  cases m; simp only [Mem.write]; split <;> rfl
+
+/-- **(lemma)** (E-03): the kernel's start satisfies the invariant: a root with at least minseq
+elements is the only stack entry; a shorter non-empty root is alternative-sorted into D at once. -/
+theorem kStartInv (k S b0 e0 src0 : Nat) (m : Mem) (hbe : b0 ≤ e0) (hsrc : src0 = 0 ∨ src0 = 1)
+    (hbd : ∀ i, b0 ≤ i → i < e0 → m.buf src0 i ≤ 0xFFFFFFFF) :
+    let xs := slice (m.buf src0) b0 (e0 - b0)
+    KInv S b0 (xs.mergeSort leB) m.D m.A (kStart (2 ^ k) (Nat.two_pow_pos k) S m b0 e0 src0) ∧
+      mass ((kStart (2 ^ k) (Nat.two_pow_pos k) S m b0 e0 src0).stack.map
+        (segOf b0 (kStart (2 ^ k) (Nat.two_pow_pos k) S m b0 e0 src0).mem)) ≤ e0 - b0 := by
+  intro xs
+  have hT := Nat.two_pow_pos k
+  have hxlen : xs.length = e0 - b0 := slice_length _ _ _
+  have htlen : (xs.mergeSort leB).length = e0 - b0 := by rw [List.length_mergeSort, hxlen]
+  obtain ⟨sI, _⟩ := startInv S xs
+  have depth0 : 1 ≤ Nat.log2 ((xs.mergeSort leB).length / S) + 1 := by omega
+  by_cases hn : S ≤ e0 - b0
+  · -- the root is pushed
+    have hk : kStart (2 ^ k) hT S m b0 e0 src0 =
+        { mem := m, stack := [⟨b0, e0, src0⟩], serr := false, partitions := 0, alts := 0, maxDepth := 1,
+          fin := [] } := by
+      simp only [kStart, ge_iff_le, hn, ↓reduceIte, show ¬ (0 < e0 - b0 ∧ e0 - b0 < S) by omega, write_nil]
+    rw [hk]
+    have hs2 : start2 S xs = ([⟨0, xs⟩], []) := by simp [start2, hxlen, show ¬ e0 - b0 < S by omega]
+    rw [hs2] at sI
+    refine ⟨⟨fun x hx => ?_, ?_, fun w hw => by simp at hw, fun _ _ => rfl, fun _ _ => rfl, rfl, depth0⟩, ?_⟩
+    · simp only [List.mem_singleton] at hx; subst hx; exact ⟨Nat.le_refl _, hbe, hsrc⟩
+    · show Inv S _ ([segOf b0 m ⟨b0, e0, src0⟩], finOf b0 [])
+      simpa [segOf, finOf, xs] using sI
+    · simp [segOf, mass, slice_length]
+  · -- the root is short: alternative-sorted at once (nothing when it is empty)
+    let wr := if 0 < e0 - b0 ∧ e0 - b0 < S then altsortK (2 ^ k) hT (m.buf src0) b0 (e0 - b0) else []
+    have hk : kStart (2 ^ k) hT S m b0 e0 src0 =
+        { mem := m.write 0 wr, stack := [], serr := false, partitions := 0,
+          alts := if 0 < e0 - b0 ∧ e0 - b0 < S then 1 else 0, maxDepth := 0, fin := wr } := by
+      simp only [kStart, ge_iff_le, hn, ↓reduceIte, wr]
+    rw [hk]
+    have hs2 : start2 S xs = ([], smallW S ⟨0, xs⟩) := by simp [start2, hxlen, show e0 - b0 < S by omega]
+    rw [hs2] at sI
+    have spec := altsortSpec (2 ^ k) hT (m.buf src0) b0 (e0 - b0) (fun i hi => hbd _ (by omega) (by omega))
+    have wrPerm : (finOf b0 wr).Perm (smallW S ⟨0, xs⟩) := by
+      simp only [smallW, hxlen, show e0 - b0 < S by omega, ↓reduceIte]
+      by_cases hz : 0 < e0 - b0
+      · simp only [wr, hz, show e0 - b0 < S by omega, and_self, ↓reduceIte]
+        refine (spec.2.2.map _).trans (List.Perm.of_eq ?_)
+        rw [show List.map (fun w : Nat × Nat => (w.fst - b0, w.snd)) = finOf b0 from rfl,
+          finOfZip b0 b0 _ (Nat.le_refl _), Nat.sub_self]; rfl
+      · simp only [wr, show e0 - b0 = 0 by omega]; rfl
+    have wrD : ∀ w ∈ wr, b0 ≤ w.1 ∧ (m.write 0 wr).D w.1 = w.2 := by
+      intro w hw
+      by_cases hz : 0 < e0 - b0 ∧ e0 - b0 < S
+      · have hw' : w ∈ altsortK (2 ^ k) hT (m.buf src0) b0 (e0 - b0) := by simpa [wr, hz] using hw
+        have hz' : (w.1, w.2) ∈ (List.range' b0 (xs.mergeSort leB).length).zip (xs.mergeSort leB) := by
+          rw [htlen]; exact spec.2.2.subset hw'
+        obtain ⟨j, hj, e1, e2⟩ := (memZipRange b0 _ w.1 w.2).1 hz'
+        refine ⟨by omega, ?_⟩
+        rw [memD, write_buf_same _ _ _ (Or.inl rfl)]
+        simp only [wr, hz, and_self, ↓reduceIte]
+        rw [spec.1, ifT (by omega), e2]; congr 1; omega
+      · simp [wr, hz] at hw
+    refine ⟨⟨fun x hx => by simp at hx, ?_, wrD, fun i hi => ?_, fun i _ => ?_, rfl, by simp⟩, by simp [mass]⟩
+    · show Inv S _ ([], finOf b0 wr)
+      obtain ⟨_, _, hp⟩ := sI
+      exact ⟨by simp, by simp [depthOK], (wrPerm.append_right _).trans hp⟩
+    · show (m.write 0 wr).D i = m.D i
+      rw [memD, write_buf_same _ _ _ (Or.inl rfl), ← memD]
+      by_cases hz : 0 < e0 - b0 ∧ e0 - b0 < S
+      · simp only [wr, hz, and_self, ↓reduceIte]
+        rw [spec.1, ifF (by omega)]
+      · simp only [wr, hz, ↓reduceIte]; rfl
+    · show (m.write 0 wr).A i = m.A i
+      simp only [Mem.write, ↓reduceIte]
+
+/-- **R-13, R-14, K-08, E-10** (T-11, T-12, T-17, T-40): the kernel `lqsort`, as transcribed, sorts
+its sequence. For a threadgroup of T = 2^k threads, any minseq ≥ 1 and a stack capacity above
+⌊log₂(ℓ/minseq)⌋ + 1 (32 under K-01 and K-04), started on [b0, e0) of either buffer holding 32-bit
+codes and run for at least ℓ iterations: the stack is empty and no error is flagged; D holds the
+sequence sorted at [b0, e0); every index of [b0, e0) is finalized exactly once (the `GQS_FINALIZE`
+events); no index outside [b0, e0) of either buffer changes; and the recorded depth is at most
+⌊log₂(ℓ/minseq)⌋ + 1. The kernel's own pushes, pivot, partition and alternative sort are what is
+proved here, through their refinement of the spec model's machine. -/
+theorem lqsortSpec (k S cap fuel b0 e0 src0 : Nat) (m : Mem) (hS : 0 < S) (hbe : b0 ≤ e0)
+    (hsrc : src0 = 0 ∨ src0 = 1) (hbd : ∀ i, b0 ≤ i → i < e0 → m.buf src0 i ≤ 0xFFFFFFFF)
+    (hcap : Nat.log2 ((e0 - b0) / S) + 1 < cap) (hfuel : e0 - b0 ≤ fuel) :
+    let st := lqsort (2 ^ k) (Nat.two_pow_pos k) S cap fuel m b0 e0 src0
+    let xs := slice (m.buf src0) b0 (e0 - b0)
+    st.stack = [] ∧ st.serr = false ∧
+    (∀ i < e0 - b0, st.mem.D (b0 + i) = (xs.mergeSort leB).getD i 0) ∧
+    (st.fin.map Prod.fst).Perm (List.range' b0 (e0 - b0)) ∧
+    (∀ i, (i < b0 ∨ e0 ≤ i) → st.mem.D i = m.D i ∧ st.mem.A i = m.A i) ∧
+    st.maxDepth ≤ Nat.log2 ((e0 - b0) / S) + 1 := by
+  intro st xs
+  let tgt := xs.mergeSort leB
+  have htlen : tgt.length = e0 - b0 := by simp [tgt, xs, List.length_mergeSort, slice_length]
+  have ht : tgt.Pairwise (· ≤ ·) := GpuQuicksortSpec.GpuQuicksort.Theorems.mergeSortSorted xs
+  have hbdT : ∀ x ∈ tgt, x ≤ 0xFFFFFFFF := by
+    intro x hx
+    have := (List.mergeSort_perm xs leB).subset hx
+    simp only [xs, slice, List.mem_map, List.mem_range] at this
+    obtain ⟨i, hi, rfl⟩ := this; exact hbd _ (by omega) (by omega)
+  obtain ⟨h0, hm0⟩ := kStartInv k S b0 e0 src0 m hbe hsrc hbd
+  have hcap' : Nat.log2 (tgt.length / S) + 1 < cap := by rw [htlen]; exact hcap
+  obtain ⟨hI, hE⟩ := kRunInv k S cap b0 tgt m.D m.A hS ht hbdT hcap' fuel _ h0
+  have hempty : st.stack = [] := hE (by omega)
+  have hI' : KInv S b0 tgt m.D m.A st := hI
+  obtain ⟨_, ⟨_, _, hp⟩, hfinPos, hfD, hfA, hnoErr, hdep⟩ := hI'
+  rw [hempty] at hp
+  simp only [List.map_nil, owed, List.flatMap_nil, List.append_nil, htlen] at hp
+  -- the log, relative to b0, is exactly the pairs (i, tgt[i])
+  have hcw : cw tgt 0 (e0 - b0) = (List.range' 0 (e0 - b0)).zip tgt := by
+    simp only [cw, List.drop_zero]; rw [← htlen, List.take_length]
+  rw [hcw] at hp
+  refine ⟨hempty, hnoErr, fun i hi => ?_, ?_, fun i hi => ⟨hfD i (by omega), hfA i (by omega)⟩,
+    by rw [← htlen]; exact hdep⟩
+  · have hmem : (i, tgt.getD i 0) ∈ finOf b0 st.fin := by
+      refine hp.symm.subset ?_
+      rw [← htlen]; exact (memZipRange 0 tgt i _).2 ⟨i, by omega, by omega, rfl⟩
+    obtain ⟨w, hw, he⟩ := List.mem_map.1 hmem
+    simp only [Prod.mk.injEq] at he
+    obtain ⟨h1, h2⟩ := hfinPos w hw
+    rw [show b0 + i = w.1 by omega, h2, he.2]
+  · have hpos := hp.map Prod.fst
+    rw [List.map_fst_zip (by simp [htlen])] at hpos
+    have e1 : (finOf b0 st.fin).map Prod.fst = (st.fin.map Prod.fst).map (· - b0) := by
+      simp [finOf, List.map_map, Function.comp_def]
+    rw [e1] at hpos
+    have hge : ∀ x ∈ st.fin.map Prod.fst, b0 ≤ x := by
+      intro x hx; obtain ⟨w, hw, rfl⟩ := List.mem_map.1 hx; exact (hfinPos w hw).1
+    have := hpos.map (b0 + ·)
+    rw [List.map_map] at this
+    rw [show ((fun x => b0 + x) ∘ fun x => x - b0) = fun x => b0 + (x - b0) from rfl] at this
+    rw [List.map_congr_left (fun x hx => show b0 + (x - b0) = x by have := hge x hx; omega), List.map_id',
+      List.range'_eq_map_range, List.map_map] at this
+    rw [List.range'_eq_map_range]
+    simpa [Function.comp_def] using this
+
 end GpuQuicksort.Theorems

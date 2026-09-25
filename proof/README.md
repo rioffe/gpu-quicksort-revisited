@@ -11,7 +11,7 @@ Built in four steps; this README tracks what exists.
 | Step | Source | Status |
 | ---- | ------ | ------ |
 | 1 | codec (`KeyCodec.swift`, `key_encode`/`key_decode`, `Sorter.codec`), exit map, `ParameterResolver`, validation in `sort` | **proven** |
-| 2 | `lqsort` and `altsort` | planned |
+| 2 | `scan2`, the threadgroup partition, `altsort`, `lqsort` | **proven** |
 | 3 | `gqsort_partition`, `scan2`, `gqsort_fill` | planned |
 | 4 | the phase-one host loop and the whole-sort composition | planned |
 
@@ -25,6 +25,12 @@ Built in four steps; this README tracks what exists.
   - defaults are the `optp` values clamped exactly as the spec model's `clampPow2` (R-16);
   - explicit values are never clamped, and an explicit invalid value throws (E-05);
   - `sort` reaches the GPU exactly when every check passes (I-006, E-06..E-08), and returns early for n ≤ 1 whatever the buffer (E-01, E-02).
+
+- `Model/Scan.lean`, `Theorems/Scan.lean` — `scan2` is an exclusive prefix sum for every T = 2^m, and no thread of a level reads or writes a slot another thread writes (R-28(a) for the scan).
+- `Model/LQSort.lean` — the transcription of `lqsort`, `altsort` and the partition they share.
+- `Theorems/TGPartition.lean` — the threadgroup partition (pass 1, `scan2`, pass 2, gap fill) is the spec model's one-block parallel partition.
+- `Theorems/AltSort.lean` — each kernel round of `altsort` is the spec model's comparator round, so `altsort` writes its sequence sorted, each index once (R-15).
+- `Theorems/LQSort.lean` — each `lqsort` iteration is the spec model's `PhaseTwo.step2` on the popped segment in thread-major order, with the kernel's median-of-three pivot. So `lqsort` sorts its sequence into D, finalizes every index exactly once, changes nothing outside it, and never overflows its stack (R-13, R-14, K-08, E-10).
 
 ## What is assumed
 
