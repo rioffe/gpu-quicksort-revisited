@@ -779,6 +779,157 @@ Tests use swift-testing and run with `swift test` (debug configuration, so test 
 | D-22 | `maxseq = 1` | valid; disables phase one (R-03), which T-40 uses to drive phase two alone | raise K-04's lower bound to 2 | R-03, K-04, K-10, T-03, T-40 | implementer / confirm |
 | D-23 | How to get a parallel `std::sort` on macOS | libc++'s parallel algorithms (libdispatch backend), enabled with `-fexperimental-library` on the `CPUBaselines` target; the linked `libc++experimental.a` in the current SDK is built for macOS 27, so the linker warns when targeting macOS 15, and the parallel baseline is a benchmark-only dependency | Intel oneTBB / pstld as the backend; a hand-written parallel merge sort (not `std::sort`) | R-26, C-11, T-39, §10 | implementer / confirm |
 
+## Appendix A — Algorithm and complexity, restated (informative)
+
+This appendix restates, in this specification's own terms, the algorithm the normative rows (§2–§8) require and the complexity arguments behind them. It is **informative**: when it and a normative row disagree, the row wins. The pseudocode was written from this implementation (`Sorter.swift`, `GPUQuicksort.metal`), not transcribed from the paper; each step names the ids that pin it down and the paper passage the idea comes from. The paper is cited as [P …] (Cederman and Tsigas 2009, [doi:10.1145/1498698.1564500](https://doi.org/10.1145/1498698.1564500)). Its text is not reproduced here, apart from three short expressions quoted in A.6 to show exactly where this design departs from it.
+
+### A.1 Notation
+
+| Symbol | Meaning |
+| ------ | ------- |
+| $n$ | number of keys |
+| $D$, $A$ | the caller's buffer and the auxiliary buffer, $n$ codes each (§3.3) |
+| code | the order-preserving `UInt32` form of a key (C-04); the kernels only ever compare codes |
+| $T$ | threads per threadgroup (a power of two, K-04) |
+| $M$ | `maxseq`, the phase-one sequence budget |
+| $S$ | `minseq`, the length below which a sequence is sorted by the alternative sort (R-15) |
+| sequence | a half-open index range $[b, e)$ plus `src` $\in \{D, A\}$, the buffer that currently holds its elements (R-07) |
+| $\overline{\mathit{src}}$ | the other buffer |
+| gap | the range between a partition's $<$ part and $>$ part, where the pivot-equal elements go; its indices are final (R-06) |
+
+### A.2 The whole sort
+
+```text
+SORT(D, n, keyType)                                                  R-01, R-03
+  if n <= 1: return                                                  E-01, E-02
+  if keyType != uint32: ENCODE(D)            one pass, own dispatch  R-17, C-04
+  A <- auxiliary buffer of n codes                                   K-09
+  done <- PHASE-ONE(D, A, n)                                         R-08
+  if done is not empty: PHASE-TWO(D, A, done)                        R-12, E-24
+  if keyType != uint32: DECODE(D)                                    R-17
+```
+
+Every index of $D$ receives its final value exactly once: either from a gap fill (phase one or phase two) or from an alternative-sort write-back (I-008). Partition writes into $D$ are never final.
+
+### A.3 Phase one: many threadgroups per sequence
+
+The host loop ([P §3.2.1], [P Alg 1]):
+
+```text
+PHASE-ONE(D, A, n)                                                   R-08
+  if n < S: return [ ([0, n), D) ]                                   E-03
+  minlength <- ceil(n / M)                                           K-06
+  work <- [ ([0, n), D) with pivot MEDIAN3 of D[0], D[n/2], D[n-1] ] D-20
+  done <- [ ]
+  iteration <- 0
+  while work is not empty and |work| + |done| < M:                   R-08 (M = 1: no iteration, R-03)
+      if iteration = maxIterations: capReached <- true; stop         K-07
+      iteration <- iteration + 1
+      blocksize <- max(T, ceil(total length of work / M))            K-06
+      for each sequence w in work:
+          record_w <- { start, end, lnext := start, gnext := end,
+                        pivot, src, lmin/lmax/gmin/gmax := identities }  C-05
+          cut w into sections of blocksize; the last takes the remainder
+      in ONE command buffer:                                         R-10, D-03
+          PARTITION: one threadgroup per section                     R-04, R-05, R-09
+          FILL:      one threadgroup per section (a later dispatch)  R-06
+      wait for completion; read the records back
+      for each w with record r:
+          check start <= lnext <= gnext <= end                       E-10
+          lower <- [start, lnext) in other(src); upper <- [gnext, end) in other(src)
+          drop empty children                                        E-17
+          child pivot <- minMaxAverage(child) or MEDIAN3(child)      R-11, O-2
+          child goes to done if |child| < minlength, else to work
+  return done ++ work
+```
+
+One threadgroup's partition of its section $[b_s, e_s)$ of sequence $r$, with pivot $p$ (the kernel `gqsort_partition`):
+
+```text
+PARTITION-SECTION(r, [b_s, e_s))
+  pass 1: thread t counts lt_t = #{ v < p } and gt_t = #{ v > p }
+          over indices b_s + t, b_s + t + T, b_s + t + 2T, ...      R-05 (coalesced)
+  exclusive prefix sums over threads: L_t, G_t; totals L, G         R-04, D-13
+  thread 0: lowBase  <- atomic fetch-add(r.lnext, L)                 R-09 (one atomic per side
+            highBase <- atomic fetch-sub(r.gnext, G) - G                     per threadgroup)
+  barrier: every thread learns lowBase, highBase                     R-28(a)
+  pass 2: thread t re-reads the same indices and writes
+          v < p to other(src)[lowBase  + L_t + j]
+          v > p to other(src)[highBase + G_t + j]
+          v = p is not written                                       R-04
+  if minMaxAverage: reduce this section's min and max of each side;
+          one atomic min/max per field into r                        O-2
+```
+
+`FILL`, a separate dispatch, gives block $j$ of a sequence the $j$-th slice of that sequence's gap $[\mathit{lnext}, \mathit{gnext})$ and writes $p$ there in $D$. Because it is a later dispatch, it sees the final cursors after every partition threadgroup has finished (R-10, I-007).
+
+### A.4 Phase two: one threadgroup per sequence
+
+([P §3.2.2], [P Alg 3]). The kernel `lqsort` runs one threadgroup per sequence in `done`:
+
+```text
+PHASE-TWO-THREADGROUP(root)                                          R-12
+  if 0 < |root| < S: ALT-SORT(root); stop                            R-15
+  push root
+  while the stack is not empty and no error:
+      barrier (device + threadgroup)                                 R-28(b)
+      pop [b, e) in src                    (the shorter part: R-13)
+      p <- MEDIAN3(s[b], s[floor((b+e)/2)], s[e-1])                  R-14, D-11
+      two-pass partition of [b, e) into other(src), as in A.3, with
+          lowBase = b and highBase = e - G (no atomics needed)       R-04, R-05
+      barrier (device + threadgroup)                                 R-28(a)
+      fill D[b + L, e - G) with p                                    R-06
+      children: [b, b + L) and [e - G, e) in other(src)
+      push the longer child, then the shorter, if length >= S;
+          a full stack sets the error flag                           R-13, K-08, E-10
+      barrier; ALT-SORT each child with 0 < length < S               R-15, R-28(b)
+
+ALT-SORT([b, e) in src)                                              R-15
+  load the elements into threadgroup memory, pad with 0xFFFFFFFF up to a power of two
+  barrier                                                            R-28(c)
+  bitonic sorting network over the padded array
+  write the first e - b elements to D[b, e)                          I-008
+```
+
+### A.5 Pivot rules
+
+| Rule | Used by | Definition | Ids |
+| ---- | ------- | ---------- | --- |
+| median of three | phase-one root (both strategies); phase-one children under `medianOfThree`; every phase-two partition | the median of the first, middle ($\lfloor (b+e)/2 \rfloor$) and last ($e-1$) element of the range | R-11, R-14, D-11, D-20 |
+| min/max average (default) | phase-one children | $p = \mathit{lo} + \lfloor (\mathit{hi} - \mathit{lo})/2 \rfloor$ over the child's minimum and maximum code, in unsigned 32-bit arithmetic | R-11, O-2, D-10 |
+
+### A.6 Where this design departs from the paper
+
+| Topic | The paper | This design | Why | Ids |
+| ----- | --------- | ----------- | --- | --- |
+| Finishing a phase-one iteration | the last threadgroup to finish detects that it is last, fills the gap and derives the child sequences; the test is written "FAA(blockcount, −1) = 0" [P Alg 2] | a separate `FILL` dispatch fills the gap; the host reads the records back and derives the children | Metal's atomics are relaxed-only, so a "last" threadgroup cannot safely read the other threadgroups' results; also, fetch-and-add returns the old value, so with the counter initialized to the block count that test is off by one | R-10, I-007, D-03 |
+| Pivot sample | the last sample element is written "d_size" [P Alg 1] and "s_end" [P Alg 3], one past the end of the range | the last sample is index $e - 1$ | out-of-range read | R-11, R-14, D-11 |
+| Phase-one pivot | the experiments use the average of the minimum and maximum [P §5.2] | the same rule, as the default since v0.5; the root uses median of three because its minimum and maximum are not yet known | median of three split `staggered` badly (about 47 iterations at 64M) | R-11, O-2, D-10, D-20 |
+| Keys | integers and floats compared directly | every key is converted to an order-preserving `UInt32` code first; floats follow IEEE 754 `totalOrder` | one kernel path; the gap fill writes the pivot's exact bit pattern, which is only a permutation if equal codes mean equal bits | R-17, C-04, I-004 |
+| Phase-one budget | fixed per GPU from the paper's measurements [P Tab II] | fitted on the target GPU by `gpuqsort tune` | Apple GPUs favor different parameters | R-24, C-10, D-06 |
+
+### A.7 Complexity
+
+**Work per partition level.** A level partitions each live element twice (a counting pass and a scatter pass) and runs one prefix sum per threadgroup of $T$ threads, which costs $O(\log T)$. With $p$ processors, a level therefore costs $O(n/p + \log T)$, and $T$ does not depend on $n$.
+
+**Average time** ([P Thm 1]). If pivots split sequences in a bounded ratio on average, the recursion has $O(\log n)$ levels. Sequences shorter than $S$ are finished by a bitonic network of size at most $S$, a constant that does not grow with $n$. So the average time is
+
+$$
+O\!\left(\frac{n}{p} \log n\right),
+$$
+
+with $p$ the number of processors. Adversarial inputs can still force $O(n^2)$ work under median-of-three; this spec does not guard against that (§0 non-goals, E-13).
+
+**A width bound for the default pivot.** Under `minMaxAverage`, a child's codes lie within either $[\mathit{lo}, p]$ or $[p + 1, \mathit{hi}]$, and each of those ranges is at most half the parent's $[\mathit{lo}, \mathit{hi}]$ (rounded up). A 32-bit code range can be halved only 32 times before it holds a single value, and a sequence of equal codes is finished by one gap fill. So along any path in phase one, a sequence is partitioned at most 32 times after the root, whatever the input order: phase-one work is $O(\frac{n}{p} \cdot 32)$ in the worst case. Phase two still uses median of three, so this bound covers phase one only.
+
+**Progress.** Every child is strictly shorter than its parent (I-005). Under median of three, the pivot is an element of the range, so the gap is non-empty. Under min/max average, $\mathit{lo} \leq p < \mathit{hi}$ whenever $\mathit{lo} < \mathit{hi}$, so the element with code $\mathit{hi}$ leaves the $<$ side and the element with code $\mathit{lo}$ leaves the $>$ side; if $\mathit{lo} = \mathit{hi}$ the whole sequence becomes a gap.
+
+**Stack depth** (K-08). Phase two always pops the shorter child, and each stack entry below the top is at most as long as the part it was split from. So the $k$-th entry from the bottom has length at most about $\ell / 2^{k-1}$, and an entry is pushed only if it has at least $S$ elements. This gives a depth of at most $\lceil \log_2(\ell / S) \rceil + 2$, which is at most 27 under K-01 and K-04, so a 32-entry stack never overflows in a correct implementation.
+
+**Space** ([P Thm 2]). The sort needs $D$ and $A$, $2n$ codes, plus bookkeeping of at most $136M + 2^{16}$ bytes (§7.1). $M$ does not depend on $n$ beyond the fitted `optp` term and is capped at $2^{16}$ (K-04), so the total is $2n + c$.
+
+**Host round trips.** Each phase-one iteration costs one command buffer and one read-back, so the fixed host overhead grows with the number of iterations, not with $n$. That is why small sorts are dominated by round trips and large ones by GPU work (`PERFORMANCE.md`, F-031).
+
 ## Revision history
 
 - **v0.5 (2026-09-25):** requester approved two changes after the 32M/64M measurements:

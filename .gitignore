@@ -10,7 +10,6 @@ junit*.xml
 gpu-quicksort.md
 gpu-quicksort.pdf
 figures/
-# Local PDF renders and pandoc/mermaid artifacts.
-SPEC.pdf
+# Local PDF renders and pandoc/mermaid artifacts (SPEC.pdf is published).
 backup/
 mermaid-filter.err
