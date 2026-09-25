@@ -13,3 +13,4 @@ figures/
 # Local PDF renders and pandoc/mermaid artifacts (SPEC.pdf is published).
 backup/
 mermaid-filter.err
+*.swp
