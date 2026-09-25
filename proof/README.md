@@ -12,7 +12,7 @@ Built in four steps; this README tracks what exists.
 | ---- | ------ | ------ |
 | 1 | codec (`KeyCodec.swift`, `key_encode`/`key_decode`, `Sorter.codec`), exit map, `ParameterResolver`, validation in `sort` | **proven** |
 | 2 | `scan2`, the threadgroup partition, `altsort`, `lqsort` | **proven** |
-| 3 | `gqsort_partition`, `scan2`, `gqsort_fill` | planned |
+| 3 | `gqsort_partition`, `gqsort_fill` (the phase-one kernels) | **proven** |
 | 4 | the phase-one host loop and the whole-sort composition | planned |
 
 ## Layout
@@ -32,9 +32,16 @@ Built in four steps; this README tracks what exists.
 - `Theorems/AltSort.lean` — each kernel round of `altsort` is the spec model's comparator round, so `altsort` writes its sequence sorted, each index once (R-15).
 - `Theorems/LQSort.lean` — each `lqsort` iteration is the spec model's `PhaseTwo.step2` on the popped segment in thread-major order, with the kernel's median-of-three pivot. So `lqsort` sorts its sequence into D, finalizes every index exactly once, changes nothing outside it, and never overflows its stack (R-13, R-14, K-08, E-10).
 
+- `Model/GQSort.lean`, `Theorems/GQSort.lean` — the phase-one kernels:
+  - For one `gqsort_partition` dispatch over many records, and for **every** modification order of each record's two cursor atomics, each record's cursors advance by L and G. The other buffer then holds permutations of the below- and above-pivot elements at [start, start + L) and [end − G, end). The record's own buffer and its gap are untouched, and nothing outside the records changes (R-04, R-05, R-07, R-09).
+  - The O-2 atomics leave the minimum and maximum of each part, in every order (O-2).
+  - `gqsort_fill` writes each record's pivot over [lnext, gnext), every index exactly once (R-06, R-10, I-004).
+
 ## What is assumed
 
 - `optp`'s exponent `Int(floor(log2(max(x, 1)) + 0.5))` is computed in Doubles; the model takes it as an input, and every theorem holds for any value of it. The concrete defaults are checked by T-20.
+- `simd_min` and `simd_max` return the minimum and maximum over the simdgroup's lanes, as the Metal Shading Language specification states. They are used only by the O-2 reduction.
+- Atomics on one location are linearizable: each fetch-and-add sees the sum of the adds before it in the location's modification order. The theorems quantify over every such order.
 - A kernel dispatch is modeled as its threads run one after another. For `key_encode` this is exact, because the threads touch disjoint indices (proven). For the sorting kernels (steps 2–4), it relies on the barriers and atomics behaving as R-28 and I-007 require.
 
 ## Commands

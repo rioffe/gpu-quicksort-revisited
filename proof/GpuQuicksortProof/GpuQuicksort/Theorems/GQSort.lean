@@ -745,4 +745,125 @@ theorem fillDispatchSpec (k bs : Nat) (mem : Mem) (recs : List Rec) (blks : List
     rw [← List.map_flatMap]
     exact recPos j (List.mem_range.1 hj)
 
+/-! ## The O-2 minima and maxima -/
+
+theorem foldlMinGlb : ∀ (l : List Nat) (a z : Nat), z ≤ l.foldl min a ↔ z ≤ a ∧ ∀ x ∈ l, z ≤ x
+  | [], a, z => by simp
+  | y :: l, a, z => by
+    rw [List.foldl_cons, foldlMinGlb l (min a y) z, Nat.le_min]
+    simp only [List.mem_cons, forall_eq_or_imp, and_assoc]
+
+theorem foldlMaxLub : ∀ (l : List Nat) (a z : Nat), l.foldl max a ≤ z ↔ a ≤ z ∧ ∀ x ∈ l, x ≤ z
+  | [], a, z => by simp
+  | y :: l, a, z => by
+    rw [List.foldl_cons, foldlMaxLub l (max a y) z, Nat.max_le]
+    simp only [List.mem_cons, forall_eq_or_imp, and_assoc]
+
+/-- **(lemma)**: an atomic min (max) over a set of contributions ends the same in every order: the
+result is the greatest lower (least upper) bound. -/
+theorem foldlMinPerm (l l' : List Nat) (h : l.Perm l') (a : Nat) : l.foldl min a = l'.foldl min a := by
+  apply Nat.le_antisymm
+  · have := (foldlMinGlb l a (l.foldl min a)).1 (Nat.le_refl _)
+    exact (foldlMinGlb l' a _).2 ⟨this.1, fun x hx => this.2 x (h.mem_iff.2 hx)⟩
+  · have := (foldlMinGlb l' a (l'.foldl min a)).1 (Nat.le_refl _)
+    exact (foldlMinGlb l a _).2 ⟨this.1, fun x hx => this.2 x (h.mem_iff.1 hx)⟩
+
+set_option maxHeartbeats 2000000 in
+/-- **O-2** (T-14, T-41): with `minMaxAverage`, one `gqsort_partition` dispatch leaves in each record
+the minimum and maximum of its below-pivot elements (`lmin`, `lmax`) and of its above-pivot elements
+(`gmin`, `gmax`), starting from the host's 0xFFFFFFFF and 0 — in every order of the four atomics
+(they are greatest lower and least upper bounds). This is what the host's child pivot
+`lo &+ (hi &- lo) / 2` reads. -/
+theorem minMaxDispatch (k : Nat) (mem : Mem) (recs : List Rec) (blks : List Blk) (ordL ordG : Nat → List Nat)
+    (pre : DispatchPre recs blks ordL ordG) (j : Nat) (hj : j < recs.length)
+    (hinit : (recs.getD j dR).lmin = 0xFFFFFFFF ∧ (recs.getD j dR).lmax = 0 ∧
+      (recs.getD j dR).gmin = 0xFFFFFFFF ∧ (recs.getD j dR).gmax = 0) :
+    let res := partitionDispatch (2 ^ k) (Nat.two_pow_pos k) true mem recs blks ordL ordG
+    let r := recs.getD j dR
+    let xs := slice (mem.buf r.src) r.start (r.end_ - r.start)
+    (∀ z, z ≤ (res.2.getD j dR).lmin ↔ z ≤ 0xFFFFFFFF ∧ ∀ x ∈ lowerPart r.pivot xs, z ≤ x) ∧
+    (∀ z, (res.2.getD j dR).lmax ≤ z ↔ ∀ x ∈ lowerPart r.pivot xs, x ≤ z) ∧
+    (∀ z, z ≤ (res.2.getD j dR).gmin ↔ z ≤ 0xFFFFFFFF ∧ ∀ x ∈ upperPart r.pivot xs, z ≤ x) ∧
+    (∀ z, (res.2.getD j dR).gmax ≤ z ↔ ∀ x ∈ upperPart r.pivot xs, x ≤ z) := by
+  intro res r xs
+  have hT := Nat.two_pow_pos k
+  let S := fun i => mem.buf (recs.getD (blks.getD i dB).seq dR).src
+  let vs := fun i => ((List.range (2 ^ k)).flatMap (visits (2 ^ k) hT (blks.getD i dB).begin (blks.getD i dB).end_)).map (S i)
+  -- the elements of the record's blocks are the record's elements
+  have memAll : ∀ x, (∃ i ∈ mineOf blks j, x ∈ vs i) ↔ x ∈ xs := by
+    intro x
+    have hc := pre.cover j hj
+    constructor
+    · rintro ⟨i, hi, hx⟩
+      have hs := ((mem_mine blks j i).1 hi).2
+      simp only [vs, S, hs, List.mem_map] at hx
+      obtain ⟨y, hy, rfl⟩ := hx
+      have hy' := (stridesPerm _ hT _ _).subset hy
+      show _ ∈ slice (mem.buf r.src) r.start (r.end_ - r.start)
+      rw [slice_eq]
+      exact List.mem_map.2 ⟨y, hc.subset (List.mem_flatMap.2 ⟨i, hi, hy'⟩), rfl⟩
+    · intro hx
+      have : x ∈ (List.range' r.start (r.end_ - r.start)).map (mem.buf r.src) := by rw [← slice_eq]; exact hx
+      obtain ⟨y, hy, rfl⟩ := List.mem_map.1 this
+      obtain ⟨i, hi, hy'⟩ := List.mem_flatMap.1 (hc.symm.subset hy)
+      have hs := ((mem_mine blks j i).1 hi).2
+      refine ⟨i, hi, ?_⟩
+      simp only [vs, S, hs]
+      exact List.mem_map.2 ⟨y, (stridesPerm _ hT _ _).symm.subset hy', rfl⟩
+  have hrec' : res.2.getD j dR = { r with
+      lnext := r.lnext + ((mineOf blks j).map fun i => (blockScan (2 ^ k) hT (S i) (recs.getD (blks.getD i dB).seq dR).pivot (blks.getD i dB)).2.1).sum
+      gnext := r.gnext - ((mineOf blks j).map fun i => (blockScan (2 ^ k) hT (S i) (recs.getD (blks.getD i dB).seq dR).pivot (blks.getD i dB)).2.2.2).sum
+      lmin := ((mineOf blks j).map fun i => (blockMinMax (2 ^ k) hT (S i) r.pivot (blks.getD i dB)).1).foldl min r.lmin
+      lmax := ((mineOf blks j).map fun i => (blockMinMax (2 ^ k) hT (S i) r.pivot (blks.getD i dB)).2.1).foldl max r.lmax
+      gmin := ((mineOf blks j).map fun i => (blockMinMax (2 ^ k) hT (S i) r.pivot (blks.getD i dB)).2.2.1).foldl min r.gmin
+      gmax := ((mineOf blks j).map fun i => (blockMinMax (2 ^ k) hT (S i) r.pivot (blks.getD i dB)).2.2.2).foldl max r.gmax } := by
+    show ((List.range recs.length).map _).getD j dR = _
+    simp only [List.getD_eq_getElem?_getD, List.getElem?_map, List.getElem?_range, hj]; rfl
+  rw [hrec']
+  obtain ⟨i1, i2, i3, i4⟩ := hinit
+  have ei1 : r.lmin = 0xFFFFFFFF := i1
+  have ei2 : r.lmax = 0 := i2
+  have ei3 : r.gmin = 0xFFFFFFFF := i3
+  have ei4 : r.gmax = 0 := i4
+  -- one shape for all four: a fold over the blocks of a fold over each block's filtered values
+  have glb : ∀ (c : Nat → Bool) (z : Nat),
+      z ≤ ((mineOf blks j).map fun i => ((vs i).filter c).foldl min 0xFFFFFFFF).foldl min 0xFFFFFFFF ↔
+        z ≤ 0xFFFFFFFF ∧ ∀ x ∈ xs.filter c, z ≤ x := by
+    intro c z
+    rw [foldlMinGlb]
+    constructor
+    · rintro ⟨h0, h⟩; refine ⟨h0, fun x hx => ?_⟩
+      obtain ⟨hx, hc⟩ := List.mem_filter.1 hx
+      obtain ⟨i, hi, hxi⟩ := (memAll x).2 hx
+      exact ((foldlMinGlb _ _ z).1 (h _ (List.mem_map.2 ⟨i, hi, rfl⟩))).2 x (List.mem_filter.2 ⟨hxi, hc⟩)
+    · rintro ⟨h0, h⟩; refine ⟨h0, fun y hy => ?_⟩
+      obtain ⟨i, hi, rfl⟩ := List.mem_map.1 hy
+      refine (foldlMinGlb _ _ z).2 ⟨h0, fun x hx => ?_⟩
+      obtain ⟨hx, hc⟩ := List.mem_filter.1 hx
+      exact h x (List.mem_filter.2 ⟨(memAll x).1 ⟨i, hi, hx⟩, hc⟩)
+  have lub : ∀ (c : Nat → Bool) (z : Nat),
+      ((mineOf blks j).map fun i => ((vs i).filter c).foldl max 0).foldl max 0 ≤ z ↔
+        ∀ x ∈ xs.filter c, x ≤ z := by
+    intro c z
+    rw [foldlMaxLub]
+    constructor
+    · rintro ⟨_, h⟩ x hx
+      obtain ⟨hx, hc⟩ := List.mem_filter.1 hx
+      obtain ⟨i, hi, hxi⟩ := (memAll x).2 hx
+      exact ((foldlMaxLub _ _ z).1 (h _ (List.mem_map.2 ⟨i, hi, rfl⟩))).2 x (List.mem_filter.2 ⟨hxi, hc⟩)
+    · intro h; refine ⟨Nat.zero_le _, fun y hy => ?_⟩
+      obtain ⟨i, hi, rfl⟩ := List.mem_map.1 hy
+      refine (foldlMaxLub _ _ z).2 ⟨Nat.zero_le _, fun x hx => ?_⟩
+      obtain ⟨hx, hc⟩ := List.mem_filter.1 hx
+      exact h x (List.mem_filter.2 ⟨(memAll x).1 ⟨i, hi, hx⟩, hc⟩)
+  refine ⟨fun z => ?_, fun z => ?_, fun z => ?_, fun z => ?_⟩
+  · show z ≤ ((mineOf blks j).map fun i => (blockMinMax (2 ^ k) hT (S i) r.pivot (blks.getD i dB)).1).foldl min r.lmin ↔ _
+    rw [ei1]; exact glb (fun v => decide (v < r.pivot)) z
+  · show ((mineOf blks j).map fun i => (blockMinMax (2 ^ k) hT (S i) r.pivot (blks.getD i dB)).2.1).foldl max r.lmax ≤ z ↔ _
+    rw [ei2]; exact lub (fun v => decide (v < r.pivot)) z
+  · show z ≤ ((mineOf blks j).map fun i => (blockMinMax (2 ^ k) hT (S i) r.pivot (blks.getD i dB)).2.2.1).foldl min r.gmin ↔ _
+    rw [ei3]; exact glb (fun v => decide (r.pivot < v)) z
+  · show ((mineOf blks j).map fun i => (blockMinMax (2 ^ k) hT (S i) r.pivot (blks.getD i dB)).2.2.2).foldl max r.gmax ≤ z ↔ _
+    rw [ei4]; exact lub (fun v => decide (r.pivot < v)) z
+
 end GpuQuicksort.Theorems
