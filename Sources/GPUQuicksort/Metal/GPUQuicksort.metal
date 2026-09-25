@@ -233,3 +233,114 @@ kernel void lqsort(device uint *D [[buffer(0)]],
     }
     if (tid == 0) stats[tg] = SortStats{partitions, alts, maxDepth, serr};
 }
+
+// ---------------------------------------------------------------------------------------------
+// Phase one ([P Alg 2], R-04, R-05, R-07, R-09, O-2): several threadgroups cooperate on one
+// sequence. Each threadgroup counts its section, scans the counts, reserves output space for the
+// whole threadgroup with exactly one atomic fetch-and-add per side, then scatters into the other
+// buffer. The pivot gap is filled afterwards by gqsort_fill (R-10, D-03).
+// Threadgroup memory: `scratch` = 2T words (dynamic) + 4 scalars <= (4T + 16) words (K-03).
+// ---------------------------------------------------------------------------------------------
+#ifdef GPUQS_TEST_HOOKS
+#define GQS_COUNT_ATOMIC(n) if (prm.hooks) atomic_fetch_add_explicit(&hookAtomics[0], (n), memory_order_relaxed)
+#else
+#define GQS_COUNT_ATOMIC(n)
+#endif
+
+kernel void gqsort_partition(device uint *D [[buffer(0)]],
+                             device uint *A [[buffer(1)]],
+                             device SequenceRecord *recs [[buffer(2)]],
+                             constant BlockDescriptor *blocks [[buffer(3)]],
+                             constant PartitionParams &prm [[buffer(4)]],
+#ifdef GPUQS_TEST_HOOKS
+                             device atomic_uint *hookAtomics [[buffer(5)]],
+#endif
+                             threadgroup uint *scratch [[threadgroup(0)]],
+                             uint tid [[thread_index_in_threadgroup]],
+                             uint tg [[threadgroup_position_in_grid]],
+                             uint T [[threads_per_threadgroup]],
+                             uint lane [[thread_index_in_simdgroup]],
+                             uint sg [[simdgroup_index_in_threadgroup]],
+                             uint nsg [[simdgroups_per_threadgroup]]) {
+    threadgroup uint sL, sG, lbeg, gbeg;
+    const BlockDescriptor blk = blocks[tg];
+    device SequenceRecord &r = recs[blk.seq];
+    const uint src = r.src, p = r.pivot;
+    device uint *S = src ? A : D;
+    device uint *Dst = src ? D : A;
+
+    // Pass 1: count elements < and > the pivot in this threadgroup's section.
+    uint lt = 0, gt = 0;
+    for (uint i = blk.begin + tid; i < blk.end; i += T) { uint v = S[i]; lt += v < p; gt += v > p; }
+    scratch[tid] = lt;
+    scratch[T + tid] = gt;
+    scan2(scratch, scratch + T, tid, T, sL, sG);
+
+    // One atomic per side reserves space for the whole threadgroup (R-09).
+    if (tid == 0) {
+        lbeg = atomic_fetch_add_explicit(&r.lnext, sL, memory_order_relaxed);
+        gbeg = atomic_fetch_sub_explicit(&r.gnext, sG, memory_order_relaxed) - sG;
+        GQS_COUNT_ATOMIC(2u);
+    }
+    threadgroup_barrier(mem_flags::mem_threadgroup);
+    uint lfrom = lbeg + scratch[tid], gfrom = gbeg + scratch[T + tid];
+
+    // Pass 2: scatter to the other buffer; pivot-equal elements are not written (R-04).
+    uint lmn = 0xFFFFFFFFu, lmx = 0u, gmn = 0xFFFFFFFFu, gmx = 0u;
+    for (uint i = blk.begin + tid; i < blk.end; i += T) {
+        uint v = S[i];
+        if (v < p) { Dst[lfrom++] = v; lmn = min(lmn, v); lmx = max(lmx, v); }
+        else if (v > p) { Dst[gfrom++] = v; gmn = min(gmn, v); gmx = max(gmx, v); }
+    }
+
+    if (prm.minMax) {                                    // O-2: one atomic per field per threadgroup
+        lmn = simd_min(lmn); lmx = simd_max(lmx); gmn = simd_min(gmn); gmx = simd_max(gmx);
+        threadgroup_barrier(mem_flags::mem_threadgroup); // every thread has read its scan offsets
+        if (lane == 0) {
+            scratch[4 * sg + 0] = lmn; scratch[4 * sg + 1] = lmx;
+            scratch[4 * sg + 2] = gmn; scratch[4 * sg + 3] = gmx;
+        }
+        threadgroup_barrier(mem_flags::mem_threadgroup);
+        if (tid == 0) {
+            for (uint k = 1; k < nsg; k++) {
+                lmn = min(lmn, scratch[4 * k + 0]); lmx = max(lmx, scratch[4 * k + 1]);
+                gmn = min(gmn, scratch[4 * k + 2]); gmx = max(gmx, scratch[4 * k + 3]);
+            }
+            atomic_fetch_min_explicit(&r.lmin, lmn, memory_order_relaxed);
+            atomic_fetch_max_explicit(&r.lmax, lmx, memory_order_relaxed);
+            atomic_fetch_min_explicit(&r.gmin, gmn, memory_order_relaxed);
+            atomic_fetch_max_explicit(&r.gmax, gmx, memory_order_relaxed);
+            GQS_COUNT_ATOMIC(4u);
+        }
+    }
+}
+
+// R-06, R-10: after every gqsort_partition threadgroup of the iteration has completed (a
+// separate dispatch), each block fills its proportional slice of its sequence's gap
+// [lnext, gnext) in D with the pivot.
+kernel void gqsort_fill(device uint *D [[buffer(0)]],
+                        device SequenceRecord *recs [[buffer(2)]],
+                        constant BlockDescriptor *blocks [[buffer(3)]],
+                        constant PartitionParams &prm [[buffer(4)]],
+#ifdef GPUQS_TEST_HOOKS
+                        device atomic_uint *fin [[buffer(6)]],
+#endif
+                        uint tid [[thread_index_in_threadgroup]],
+                        uint tg [[threadgroup_position_in_grid]],
+                        uint T [[threads_per_threadgroup]]) {
+#ifdef GPUQS_TEST_HOOKS
+    const uint hooks = prm.hooks;
+#endif
+    const BlockDescriptor blk = blocks[tg];
+    device SequenceRecord &r = recs[blk.seq];
+    const uint gs = atomic_load_explicit(&r.lnext, memory_order_relaxed);
+    const uint ge = atomic_load_explicit(&r.gnext, memory_order_relaxed);
+    const uint bs = prm.blocksize;
+    const uint nb = (r.end - r.start + bs - 1) / bs;
+    const uint j = (blk.begin - r.start) / bs;
+    const uint chunk = (ge - gs + nb - 1) / nb;
+    const uint from = gs + j * chunk;
+    const uint to = min(from + chunk, ge);
+    const uint p = r.pivot;
+    for (uint i = from + tid; i < to; i += T) { D[i] = p; GQS_FINALIZE(i); }
+}

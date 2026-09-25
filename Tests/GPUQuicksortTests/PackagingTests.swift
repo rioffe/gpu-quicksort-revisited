@@ -81,3 +81,23 @@ import Testing
         #expect(try String(contentsOf: out.appendingPathComponent("metallib.sha256"), encoding: .utf8) == stamp)
     }
 }
+
+extension PackagingTests {
+    /// T-35 (R-27, C-09, E-19): the SHA-256 of GPUQuicksort.metal followed by SharedTypes.h equals
+    /// Resources/metallib.sha256, and both shipped .metallib variants load and expose all five
+    /// kernel names.
+    @Test(.enabled(if: TS.hasGPU)) func stampIsCurrent() throws {
+        let root = TS.packageRoot
+        let src = try Data(contentsOf: root.appendingPathComponent("Sources/GPUQuicksort/Metal/GPUQuicksort.metal"))
+        let hdr = try Data(contentsOf: root.appendingPathComponent("Sources/CShared/include/SharedTypes.h"))
+        let stamp = try String(contentsOf: root.appendingPathComponent("Sources/GPUQuicksort/Resources/metallib.sha256"),
+                               encoding: .utf8).trimmingCharacters(in: .whitespacesAndNewlines)
+        #expect(TS.sha256Hex(src + hdr) == stamp, "stale .metallib: run scripts/build-metallib.sh")
+        let device = try #require(TS.device)
+        for v in ["GPUQuicksort", "GPUQuicksort-testhooks"] {
+            let url = try #require(ShaderLibrary.resourceURL(v, "metallib"))
+            let lib = try device.makeLibrary(URL: url)
+            for k in ShaderLibrary.kernelNames { #expect(lib.functionNames.contains(k), "\(v): \(k)") }
+        }
+    }
+}
