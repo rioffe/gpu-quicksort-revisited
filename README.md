@@ -134,6 +134,7 @@ Sources/GPUQuicksort/
 Sources/gpuqsort/                    CLI: main, Info, Gen, SortCommand, Verify, Bench, Tuner, Common
 Tests/GPUQuicksortTests/             Oracle, Packaging, Correctness, API, Structure, CLI, Recorded suites
 proof_from_spec/                     Lean 4 model of SPEC.md and proofs of the paper's algorithms
+proof/                               Lean 4 transcription of Sources/ proved against the spec model
 ```
 
 ## Verification
@@ -157,10 +158,13 @@ Every test cites the SPEC ids it proves in its doc comment. `SPEC_BUILD_REPORT.m
 - **Key codes preserve order.** The `int32` and `float32` codes are bijections, and their unsigned order matches signed order and IEEE 754 `totalOrder`.
 - **Bounds and exits hold.** The phase-one buffers can't overflow, and the exit-code and lifecycle tables have no gaps.
 
-These proofs certify the spec's model, not the Swift/Metal code. They also assume that barriers and atomics behave as the spec requires. The modeling found one spec-precision issue (F-034, overlapping transition-table rows); see [`docs/reviews/SPEC_MODEL_FINDINGS.md`](docs/reviews/SPEC_MODEL_FINDINGS.md).
+[`proof/`](proof/README.md) then proves the **code**: a Lean transcription of the Swift and Metal sources, shown to refine that model. For every order in which the GPU's atomics take effect, `run` leaves the keys sorted, a permutation of the input, with every index finalized exactly once and no internal error. The kernels (`scan2`, both partitions, `altsort`, `lqsort`'s stack) and the host loop are each proven. `proof/` covers 45 ids against the code; the remaining ids are carried by the tests.
+
+The spec-model proofs certify the model, not the Swift/Metal code, and `proof/` certifies a transcription of the code, not the files themselves. They also assume that barriers and atomics behave as the spec requires. The modeling found one spec-precision issue (F-034, overlapping transition-table rows); see [`docs/reviews/SPEC_MODEL_FINDINGS.md`](docs/reviews/SPEC_MODEL_FINDINGS.md).
 
 ```bash
 cd proof_from_spec && lake build        # Lean 4.34.1, no external packages
+cd proof && lake build                  # the code proof; builds proof_from_spec as a path dependency
 ```
 
 ## Scope

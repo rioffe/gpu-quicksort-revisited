@@ -149,7 +149,9 @@ order of exactly that record's blocks. -/
 def ValidOrders (ords : Nat → Orders) : Prop :=
   ∀ it (blks : List Blk) j, ((ords it blks).1 j).Perm (mineOf blks j) ∧ ((ords it blks).2 j).Perm (mineOf blks j)
 
-/-- **(lemma)** (K-06): the host's records and blocks meet the partition dispatch's preconditions. -/
+/-- **K-06** (T-13): the host's split of each work sequence into ⌈ℓ/blocksize⌉ blocks (the last
+taking the remainder) tiles it exactly and numbers the blocks 0 … ⌈ℓ/blocksize⌉ − 1; with the
+records initialised as C-05 says, this is what the partition dispatch needs. -/
 theorem hostDispatchPre (bs : Nat) (hbs : 0 < bs) (work : List (SeqD × Nat)) (o : Orders)
     (ho : ∀ j, ((o (mkBlocks bs hbs work)).1 j).Perm (mineOf (mkBlocks bs hbs work) j) ∧
       ((o (mkBlocks bs hbs work)).2 j).Perm (mineOf (mkBlocks bs hbs work) j))
@@ -670,5 +672,307 @@ theorem p1BodyInv (k m minlength : Nat) (minMax : Bool) (o : Orders)
     rw [outside 0 (Or.inl rfl) i (fun j hj => Or.inr (Nat.le_trans (workEnd j hj) hi))]; exact h.frameD i hi
   · show fd.1.buf 1 i = A0 i
     rw [outside 1 (Or.inr rfl) i (fun j hj => Or.inr (Nat.le_trans (workEnd j hj) hi))]; exact h.frameA i hi
+
+/-! ## The phase-one loop -/
+
+/-- **R-08, E-17** (T-02, T-13): the host's phase-one loop, for any fuel, iteration cap and valid
+atomic orders, keeps the invariant: every live sequence is non-empty (empty children are dropped)
+and holds a permutation of its window of the sorted result, and the fills plus the writes still
+owed are exactly the correct writes. -/
+theorem p1IterInv (k m minlength maxIter : Nat) (minMax : Bool) (ords : Nat → Orders) (hords : ValidOrders ords)
+    (tgt : List Nat) (ht : tgt.Pairwise (· ≤ ·)) (D0 A0 : Nat → Nat) :
+    ∀ fuel (st : P1), CInv tgt D0 A0 st →
+      ∃ st', p1Iter (2 ^ k) (Nat.two_pow_pos k) m minlength maxIter minMax ords fuel st = some st' ∧ CInv tgt D0 A0 st'
+  | 0, st, h => ⟨st, rfl, h⟩
+  | f + 1, st, h => by
+    simp only [p1Iter]
+    split
+    · split
+      · exact ⟨_, rfl, ⟨h.wf, h.win, h.perm, h.fillsD, h.frameD, h.frameA⟩⟩
+      · obtain ⟨st1, h1, h2, _, _⟩ := p1BodyInv k m minlength minMax (ords st.iteration)
+          (fun blks j => hords st.iteration blks j) tgt ht D0 A0 st h
+        rw [h1]
+        exact p1IterInv k m minlength maxIter minMax ords hords tgt ht D0 A0 f st1 h2
+    · exact ⟨st, rfl, h⟩
+
+/-! ## Phase two -/
+
+theorem zipRangeEq (b len : Nat) (l : List Nat) (hl : l.length = len) (f : Nat → Nat)
+    (hf : ∀ i < len, f (b + i) = l.getD i 0) :
+    (List.range' b len).map (fun x => (x, f x)) = (List.range' b len).zip l := by
+  apply List.ext_getElem
+  · simp [hl]
+  · intro i h1 h2
+    simp only [List.length_map, List.length_range'] at h1
+    simp only [List.getElem_map, List.getElem_range', List.getElem_zip, Nat.one_mul]
+    rw [hf i h1]; simp [List.getD_eq_getElem?_getD, hl, h1]
+
+/-- A done list's invariant: the phase-one invariant with nothing left in `work`. -/
+def PInv (tgt : List Nat) (D0 A0 : Nat → Nat) (mem : Mem) (seqs : List SeqD) (fills : List (Nat × Nat)) : Prop :=
+  CInv tgt D0 A0 ⟨mem, [], seqs, 0, false, fills⟩
+
+set_option maxHeartbeats 4000000 in
+/-- **(lemma)** (R-12, R-13): phase two, one `lqsort` threadgroup per sequence, finalizes every
+sequence: afterwards the finalized writes of both phases are exactly the correct writes, and D
+holds every one of them. -/
+theorem phaseTwoInv (k S fuel : Nat) (hS : 64 ≤ S) (tgt : List Nat) (ht : tgt.Pairwise (· ≤ ·))
+    (hbd : ∀ x ∈ tgt, x ≤ 0xFFFFFFFF) (hn : tgt.length ≤ GpuQuicksortSpec.GpuQuicksort.Spec.keyCap)
+    (hfuel : tgt.length ≤ fuel) (D0 A0 : Nat → Nat) :
+    ∀ (seqs : List SeqD) (mem : Mem) (fills : List (Nat × Nat)), PInv tgt D0 A0 mem seqs fills →
+      ∃ m' fins, phaseTwo (2 ^ k) (Nat.two_pow_pos k) S 32 fuel mem seqs = some (m', fins) ∧
+        (fills ++ fins).Perm (cw tgt 0 tgt.length) ∧ (∀ w ∈ fills ++ fins, m'.D w.1 = w.2) ∧
+        (∀ i, tgt.length ≤ i → m'.D i = D0 i ∧ m'.A i = A0 i)
+  | [], mem, fills, h => by
+    refine ⟨mem, [], rfl, ?_, ?_, fun i hi => ⟨h.frameD i hi, h.frameA i hi⟩⟩
+    · have := h.perm; simp [seqsOf, owed] at this; simpa using this
+    · intro w hw; simp only [List.append_nil] at hw; exact h.fillsD w hw
+  | sq :: ss, mem, fills, h => by
+    have hsm : sq ∈ seqsOf (⟨mem, [], sq :: ss, 0, false, fills⟩ : P1) := by simp [seqsOf]
+    obtain ⟨hlt, hsrc⟩ := h.wf sq hsm
+    have hw := h.win sq hsm
+    obtain ⟨hpw, hfo⟩ := cinvDisjoint tgt D0 A0 _ h
+    simp only [seqsOf, List.map_nil, List.nil_append] at hpw hfo
+    have hpw' := List.pairwise_cons.1 hpw
+    have hlen : (segD mem sq).xs.length = sq.end_ - sq.begin := slice_length _ _ _
+    have hfit : sq.begin + (sq.end_ - sq.begin) ≤ tgt.length := by have := hw.2; simp only [segD, slice_length] at this; omega
+    -- the slice is a window of the sorted result
+    have hwin : (slice (mem.buf sq.src) sq.begin (sq.end_ - sq.begin)).Perm ((tgt.drop sq.begin).take (sq.end_ - sq.begin)) := by
+      have := hw.1; simp only [segD, slice_length] at this; exact this
+    have hbdS : ∀ i, sq.begin ≤ i → i < sq.end_ → mem.buf sq.src i ≤ 0xFFFFFFFF := by
+      intro i h1 h2
+      apply hbd
+      have : mem.buf sq.src i ∈ slice (mem.buf sq.src) sq.begin (sq.end_ - sq.begin) := by
+        rw [slice_eq]; exact List.mem_map.2 ⟨i, List.mem_range'_1.2 ⟨h1, by omega⟩, rfl⟩
+      exact List.mem_of_mem_drop (List.mem_of_mem_take (hwin.subset this))
+    have hcap : Nat.log2 ((sq.end_ - sq.begin) / S) + 1 < 32 := by
+      have := GpuQuicksortSpec.GpuQuicksort.Theorems.stackArithmetic (sq.end_ - sq.begin) S (by omega) hS
+      omega
+    obtain ⟨_, hserr, hsorted, hpos, hval, hframe, _⟩ :=
+      lqsortSpec k S 32 fuel sq.begin sq.end_ sq.src mem (by omega) (by omega) hsrc hbdS hcap (by omega)
+    let kst := lqsort (2 ^ k) (Nat.two_pow_pos k) S 32 fuel mem sq.begin sq.end_ sq.src
+    -- the sorted slice is the window
+    have hwinEq : (slice (mem.buf sq.src) sq.begin (sq.end_ - sq.begin)).mergeSort leB =
+        (tgt.drop sq.begin).take (sq.end_ - sq.begin) :=
+      GpuQuicksortSpec.GpuQuicksort.Theorems.sortedPermUnique _ _ (GpuQuicksortSpec.GpuQuicksort.Theorems.mergeSortSorted _)
+        (GpuQuicksortSpec.GpuQuicksort.PhaseTwo.sliceSorted tgt ht _ _) ((List.mergeSort_perm _ _).trans hwin)
+    have hfinCw : kst.fin.Perm (cw tgt sq.begin (sq.end_ - sq.begin)) := by
+      have e1 : kst.fin = (kst.fin.map Prod.fst).map fun x => (x, kst.mem.D x) := by
+        rw [List.map_map]; conv => lhs; rw [← List.map_id kst.fin]
+        apply List.map_congr_left; intro w hw; simp only [id, Function.comp]; rw [hval w hw]
+      rw [e1]
+      refine (hpos.map _).trans (List.Perm.of_eq ?_)
+      simp only [cw]
+      apply zipRangeEq
+      · simp; omega
+      · intro i hi; rw [hsorted i hi, hwinEq]
+    -- the rest of the done list is untouched
+    have hrest : ∀ s' ∈ ss, segD kst.mem s' = segD mem s' := by
+      intro s' hs'
+      have hd := hpw'.1 s' hs'
+      have hs'w := h.wf s' (by simp [seqsOf, hs'])
+      simp only [segD]; congr 1
+      apply slice_congr; intro x h1 h2
+      rcases hs'w.2 with e | e <;> rw [e]
+      · exact (hframe x (by omega)).1
+      · exact (hframe x (by omega)).2
+    have h' : PInv tgt D0 A0 kst.mem ss (fills ++ kst.fin) := by
+      refine ⟨fun s hs => h.wf s (by simp [seqsOf] at hs ⊢; exact Or.inr hs), fun s hs => ?_, ?_, fun w hw => ?_,
+        fun i hi => ?_, fun i hi => ?_⟩
+      · simp only [seqsOf, List.map_nil, List.nil_append] at hs
+        rw [hrest s hs]; exact h.win s (by simp [seqsOf, hs])
+      · have hold := h.perm
+        simp only [seqsOf, List.map_nil, List.nil_append, List.map_cons, owed, List.flatMap_cons] at hold
+        show List.Perm (fills ++ kst.fin ++ owed tgt ((seqsOf ⟨kst.mem, [], ss, 0, false, fills ++ kst.fin⟩).map (segD kst.mem))) _
+        simp only [seqsOf, List.map_nil, List.nil_append]
+        rw [show ss.map (segD kst.mem) = ss.map (segD mem) from List.map_congr_left hrest]
+        simp only [segD, slice_length] at hold
+        rw [List.append_assoc]
+        refine (List.Perm.append_left _ (hfinCw.append_right _)).trans ?_
+        simpa [owed] using hold
+      · rcases List.mem_append.1 hw with hw | hw
+        · have := hfo w hw sq List.mem_cons_self
+          show kst.mem.D w.1 = w.2
+          rw [(hframe w.1 this).1]; exact h.fillsD w hw
+        · exact hval w hw
+      · rw [(hframe i (by omega)).1]; exact h.frameD i hi
+      · rw [(hframe i (by omega)).2]; exact h.frameA i hi
+    obtain ⟨m', fins, h1, h2, h3, h4⟩ := phaseTwoInv k S fuel hS tgt ht hbd hn hfuel D0 A0 ss kst.mem _ h'
+    refine ⟨m', kst.fin ++ fins, ?_, by simpa [List.append_assoc] using h2, by simpa [List.append_assoc] using h3, h4⟩
+    simp only [phaseTwo]
+    show (if kst.serr then none else match phaseTwo (2 ^ k) (Nat.two_pow_pos k) S 32 fuel kst.mem ss with
+      | none => none | some (m', f) => some (m', kst.fin ++ f)) = _
+    rw [hserr, h1]; rfl
+
+/-! ## The whole sort -/
+
+set_option maxHeartbeats 4000000 in
+/-- **R-01, R-02, R-03, R-12, R-17, I-001, I-002, I-003, I-008, E-03, E-13, E-24** (T-01, T-03, T-04, T-05, T-07, T-16):
+the sort as the code runs it. For n keys (2 ≤ n ≤ 2^31 − 1) of any key type in the caller's
+buffer, T = 2^k threads, minseq ≥ 64, any maxseq and iteration cap, and **every** choice of the
+atomics' modification orders in every phase-one iteration, `run` never reports an internal
+invariant violation; afterwards key i of the buffer is the i-th smallest C-04 code, decoded — the
+keys sorted in the C-04 order (IEEE `totalOrder` for floats, by the spec model's `float32CodeOrder`),
+a permutation of the input; nothing past the n keys changes; and every index is finalized exactly
+once, by a phase-one gap fill or a phase-two gap fill or alternative-sort write-back. The output
+does not mention T, maxseq, minseq, the iteration cap, the pivot strategy or the atomic orders:
+it is the same for all of them (I-003). -/
+theorem sortRunSpec (k n maxseq minseq maxIter : Nat) (minMax : Bool) (key : KeyType) (ords : Nat → Orders)
+    (hords : ValidOrders ords) (fuel : Nat) (D : Nat → BitVec 32) (A : Nat → Nat)
+    (hS : 64 ≤ minseq) (hn2 : 2 ≤ n) (hn : n ≤ GpuQuicksortSpec.GpuQuicksort.Spec.keyCap) (hfuel : n ≤ fuel) :
+    let tgt := ((List.range n).map fun i => (specCode key true (D i)).toNat).mergeSort leB
+    ∃ out fins, sortRun (2 ^ k) (Nat.two_pow_pos k) n maxseq minseq maxIter minMax key ords fuel D A = some (out, fins) ∧
+      (∀ i < n, out i = specCode key false (BitVec.ofNat 32 (tgt.getD i 0))) ∧
+      (∀ i, n ≤ i → out i = D i) ∧
+      (fins.map Prod.fst).Perm (List.range n) := by
+  intro tgt
+  have hT := Nat.two_pow_pos k
+  let enc := hostCodec D n key true
+  let mem : Mem := ⟨fun i => (enc i).toNat, A⟩
+  let codes := (List.range n).map fun i => (specCode key true (D i)).toNat
+  have hcodes : slice mem.D 0 n = codes := by
+    simp only [slice, codes, Nat.zero_add]; apply List.map_congr_left; intro i hi
+    rw [List.mem_range] at hi
+    show (hostCodec D n key true i).toNat = _
+    rw [hostCodecIsSpec]; simp [hi]
+  have htlen : tgt.length = n := by simp [tgt, List.length_mergeSort]
+  have ht : tgt.Pairwise (· ≤ ·) := GpuQuicksortSpec.GpuQuicksort.Theorems.mergeSortSorted _
+  have hbd : ∀ x ∈ tgt, x ≤ 0xFFFFFFFF := by
+    intro x hx
+    have := (List.mergeSort_perm codes leB).subset hx
+    simp only [codes, List.mem_map] at this
+    obtain ⟨i, _, rfl⟩ := this
+    have := (specCode key true (D i)).isLt; omega
+  have htk : (tgt.drop 0).take n = tgt := by rw [List.drop_zero, ← htlen, List.take_length]
+  have rootWin : win tgt (segD mem ⟨0, n, 0⟩) := by
+    refine ⟨?_, by simp [segD, slice_length, htlen]⟩
+    show (slice (mem.buf 0) 0 (n - 0)).Perm ((tgt.drop 0).take (slice (mem.buf 0) 0 (n - 0)).length)
+    rw [slice_length, Nat.sub_zero, htk]
+    exact (show slice (mem.buf 0) 0 n = codes from hcodes) ▸ (List.mergeSort_perm codes leB).symm
+  have rootPerm : owed tgt [segD mem ⟨0, n, 0⟩] = cw tgt 0 tgt.length := by
+    simp [owed, segD, slice_length, htlen]
+  -- phase one ends with the done-list invariant
+  have hP1 : ∃ m1 done fills, phaseOne (2 ^ k) hT n maxseq minseq maxIter minMax ords fuel mem = some (m1, done, fills) ∧
+      PInv tgt mem.D mem.A m1 done fills := by
+    unfold phaseOne
+    by_cases hsmall : n < minseq
+    · simp only [hsmall, ↓reduceIte]
+      refine ⟨_, _, _, rfl, fun s hs => ?_, fun s hs => ?_, ?_, fun w hw => by simp at hw, fun _ _ => rfl, fun _ _ => rfl⟩
+      · simp [seqsOf] at hs; subst hs; exact ⟨show 0 < n by omega, Or.inl rfl⟩
+      · simp [seqsOf] at hs; subst hs; exact rootWin
+      · simp only [seqsOf, List.map_nil, List.nil_append, List.map_cons, List.map_nil, List.nil_append]
+        rw [rootPerm]
+    · simp only [hsmall, ↓reduceIte]
+      have h0 : CInv tgt mem.D mem.A ⟨mem, [(⟨0, n, 0⟩, hostMed3 mem.D 0 n)], [], 0, false, []⟩ := by
+        refine ⟨fun s hs => ?_, fun s hs => ?_, ?_, fun w hw => by simp at hw, fun _ _ => rfl, fun _ _ => rfl⟩
+        · simp [seqsOf] at hs; subst hs; exact ⟨show 0 < n by omega, Or.inl rfl⟩
+        · simp [seqsOf] at hs; subst hs; exact rootWin
+        · simp only [seqsOf, List.map_cons, List.map_nil, List.nil_append, List.append_nil]; rw [rootPerm]
+      obtain ⟨st, hst, hinv⟩ := p1IterInv k maxseq ((n + maxseq - 1) / maxseq) maxIter minMax ords hords tgt ht
+        mem.D mem.A fuel _ h0
+      rw [hst]
+      refine ⟨_, _, _, rfl, fun s hs => ?_, fun s hs => ?_, ?_, hinv.fillsD, hinv.frameD, hinv.frameA⟩
+      · exact hinv.wf s (by
+          simp only [seqsOf, List.map_nil, List.nil_append] at hs
+          exact List.mem_append.2 (List.mem_append.1 hs).symm)
+      · exact hinv.win s (by
+          simp only [seqsOf, List.map_nil, List.nil_append] at hs
+          exact List.mem_append.2 (List.mem_append.1 hs).symm)
+      · have := hinv.perm
+        simp only [seqsOf, List.map_nil, List.nil_append, List.map_append,
+          GpuQuicksortSpec.GpuQuicksort.PhaseTwo.owed_append] at this ⊢
+        rw [List.perm_iff_count]; intro v
+        have c := this.count_eq v
+        simp only [List.count_append] at c ⊢; omega
+  obtain ⟨m1, done, fills, hp1, hpinv⟩ := hP1
+  -- phase two (skipped when nothing is left, E-24)
+  have hP2 : ∃ m2 fins, (if done = [] then some (m1, []) else phaseTwo (2 ^ k) hT minseq 32 fuel m1 done) = some (m2, fins) ∧
+      (fills ++ fins).Perm (cw tgt 0 tgt.length) ∧ (∀ w ∈ fills ++ fins, m2.D w.1 = w.2) ∧
+      (∀ i, tgt.length ≤ i → m2.D i = mem.D i) := by
+    obtain ⟨m2, fins, h1, h2, h3, h4⟩ :=
+      phaseTwoInv k minseq fuel hS tgt ht hbd (by omega) (by omega) mem.D mem.A done m1 fills hpinv
+    by_cases hd : done = []
+    · subst hd
+      simp only [phaseTwo] at h1
+      simp only [↓reduceIte]
+      obtain ⟨rfl, rfl⟩ := Prod.mk.inj (Option.some.inj h1)
+      exact ⟨m1, [], rfl, h2, h3, fun i hi => (h4 i hi).1⟩
+    · simp only [hd, ↓reduceIte]
+      exact ⟨m2, fins, h1, h2, h3, fun i hi => (h4 i hi).1⟩
+  obtain ⟨m2, fins, hp2, hperm, hvals, hframe⟩ := hP2
+  refine ⟨hostCodec (fun i => BitVec.ofNat 32 (m2.D i)) n key false, fills ++ fins, ?_, fun i hi => ?_,
+    fun i hi => ?_, ?_⟩
+  · simp only [sortRun]
+    show (match phaseOne (2 ^ k) hT n maxseq minseq maxIter minMax ords fuel mem with
+      | none => none
+      | some (m1, done, fills) =>
+        match (if done = [] then some (m1, []) else phaseTwo (2 ^ k) hT minseq 32 fuel m1 done) with
+        | none => none
+        | some (m2, fins) => some (hostCodec (fun i => BitVec.ofNat 32 (m2.D i)) n key false, fills ++ fins)) = _
+    rw [hp1]; simp only; rw [hp2]
+  · -- key i is the i-th smallest code, decoded
+    rw [hostCodecIsSpec]; simp only [hi, ↓reduceIte]
+    congr 2
+    have hmem : (i, tgt.getD i 0) ∈ fills ++ fins := by
+      refine hperm.symm.subset ?_
+      rw [htlen]
+      have := (memZipRange 0 tgt i (tgt.getD i 0)).2 ⟨i, by omega, by omega, rfl⟩
+      rw [htlen] at this
+      have htk2 : tgt.take n = tgt := by rw [← htlen, List.take_length]
+      simpa [cw, htk2] using this
+    exact hvals _ hmem
+  · rw [hostCodecIsSpec]; simp only [show ¬ i < n by omega, ↓reduceIte]
+    rw [hframe i (by omega)]
+    show BitVec.ofNat 32 (hostCodec D n key true i).toNat = D i
+    rw [BitVec.ofNat_toNat, BitVec.setWidth_eq, hostCodecIsSpec]; simp [show ¬ i < n by omega]
+  · have := hperm.map Prod.fst
+    rw [cwPos tgt 0 _ (by omega), htlen, ← List.range_eq_range'] at this
+    exact this
+
+/-! ## Pivots and the iteration cap -/
+
+/-- **R-11** (T-14, T-41): the host's phase-one pivots are the spec's. The O-2 pivot
+`lo &+ (hi &- lo) / 2`, in 32-bit arithmetic, is lo + ⌊(hi − lo)/2⌋ with no wrap whenever
+lo ≤ hi < 2^32 (the child's minimum and maximum), and lies in [lo, hi]; the median-of-three pivot
+of a non-empty child is the spec model's `medianOfThree` of its contents. -/
+theorem hostPivots :
+    (∀ lo hi, lo ≤ hi → hi < 2 ^ 32 →
+      minMaxPivotU32 lo hi = GpuQuicksortSpec.GpuQuicksort.Model.minMaxPivot lo hi ∧
+      lo ≤ minMaxPivotU32 lo hi ∧ minMaxPivotU32 lo hi ≤ hi) ∧
+    (∀ (f : Nat → Nat) b e, b < e → hostMed3 f b e = GpuQuicksortSpec.GpuQuicksort.Model.medianOfThree (slice f b (e - b))) := by
+  refine ⟨fun lo hi h1 h2 => ?_, fun f b e h => ?_⟩
+  · have e1 : (hi + 2 ^ 32 - lo) % 2 ^ 32 = hi - lo := by
+      rw [show hi + 2 ^ 32 - lo = (hi - lo) + 2 ^ 32 by omega, Nat.add_mod_right, Nat.mod_eq_of_lt (by omega)]
+    simp only [minMaxPivotU32, GpuQuicksortSpec.GpuQuicksort.Model.minMaxPivot, e1]
+    rw [Nat.mod_eq_of_lt (by omega)]
+    omega
+  · simp only [hostMed3]
+    rw [← kernelPivot f b (e - b) (by omega), show b + (e - b) = e by omega]
+
+theorem p1BodyIter (T : Nat) (hT : 0 < T) (m minlength : Nat) (minMax : Bool) (o : Orders) (st st' : P1)
+    (h : p1Body T hT m minlength minMax o st = some st') : st'.iteration = st.iteration + 1 := by
+  unfold p1Body at h
+  dsimp only at h
+  split at h
+  · simp only [Option.some.injEq] at h; rw [← h]
+  · cases h
+
+/-- **K-07** (T-10): the host's phase-one loop never runs more than `maxPhaseOneIterations`
+iterations; reaching the cap with the loop condition still holding stops it with the flag set. -/
+theorem p1IterCap (T : Nat) (hT : 0 < T) (m minlength maxIter : Nat) (minMax : Bool) (ords : Nat → Orders) :
+    ∀ fuel (st st' : P1), st.iteration ≤ maxIter →
+      p1Iter T hT m minlength maxIter minMax ords fuel st = some st' → st'.iteration ≤ maxIter
+  | 0, st, st', h, e => by simp only [p1Iter, Option.some.injEq] at e; rw [← e]; exact h
+  | f + 1, st, st', h, e => by
+    simp only [p1Iter] at e
+    split at e
+    · split at e
+      · simp only [Option.some.injEq] at e; rw [← e]; exact h
+      · next hne =>
+        split at e
+        · cases e
+        · next st1 h1 =>
+          have := p1BodyIter T hT m minlength minMax _ st st1 h1
+          exact p1IterCap T hT m minlength maxIter minMax ords f st1 st' (by omega) e
+    · simp only [Option.some.injEq] at e; rw [← e]; exact h
 
 end GpuQuicksort.Theorems

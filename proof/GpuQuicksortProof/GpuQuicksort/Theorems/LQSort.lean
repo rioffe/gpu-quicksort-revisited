@@ -823,6 +823,7 @@ theorem lqsortSpec (k S cap fuel b0 e0 src0 : Nat) (m : Mem) (hS : 0 < S) (hbe :
     st.stack = [] ∧ st.serr = false ∧
     (∀ i < e0 - b0, st.mem.D (b0 + i) = (xs.mergeSort leB).getD i 0) ∧
     (st.fin.map Prod.fst).Perm (List.range' b0 (e0 - b0)) ∧
+    (∀ w ∈ st.fin, st.mem.D w.1 = w.2) ∧
     (∀ i, (i < b0 ∨ e0 ≤ i) → st.mem.D i = m.D i ∧ st.mem.A i = m.A i) ∧
     st.maxDepth ≤ Nat.log2 ((e0 - b0) / S) + 1 := by
   intro st xs
@@ -846,8 +847,8 @@ theorem lqsortSpec (k S cap fuel b0 e0 src0 : Nat) (m : Mem) (hS : 0 < S) (hbe :
   have hcw : cw tgt 0 (e0 - b0) = (List.range' 0 (e0 - b0)).zip tgt := by
     simp only [cw, List.drop_zero]; rw [← htlen, List.take_length]
   rw [hcw] at hp
-  refine ⟨hempty, hnoErr, fun i hi => ?_, ?_, fun i hi => ⟨hfD i (by omega), hfA i (by omega)⟩,
-    by rw [← htlen]; exact hdep⟩
+  refine ⟨hempty, hnoErr, fun i hi => ?_, ?_, fun w hw => (hfinPos w hw).2,
+    fun i hi => ⟨hfD i (by omega), hfA i (by omega)⟩, by rw [← htlen]; exact hdep⟩
   · have hmem : (i, tgt.getD i 0) ∈ finOf b0 st.fin := by
       refine hp.symm.subset ?_
       rw [← htlen]; exact (memZipRange 0 tgt i _).2 ⟨i, by omega, by omega, rfl⟩
