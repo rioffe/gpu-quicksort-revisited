@@ -1,0 +1,11 @@
+name = "gpu_quicksort_proof"
+version = "0.1.0"
+defaultTargets = ["GpuQuicksortProof"]
+
+# The spec model this proof refines: in this repository, pinned by path (no external packages).
+[[require]]
+name = "gpu_quicksort_spec"
+path = "../proof_from_spec"
+
+[[lean_lib]]
+name = "GpuQuicksortProof"

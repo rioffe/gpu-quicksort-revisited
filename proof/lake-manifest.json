@@ -1,0 +1,13 @@
+{"version": "1.2.0",
+ "packagesDir": ".lake/packages",
+ "packages":
+ [{"type": "path",
+   "scope": "",
+   "name": "gpu_quicksort_spec",
+   "manifestFile": "lake-manifest.json",
+   "inherited": false,
+   "dir": "../proof_from_spec",
+   "configFile": "lakefile.toml"}],
+ "name": "gpu_quicksort_proof",
+ "lakeDir": ".lake",
+ "fixedToolchain": false}
