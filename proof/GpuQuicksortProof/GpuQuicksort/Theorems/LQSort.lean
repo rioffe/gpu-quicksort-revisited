@@ -354,4 +354,348 @@ theorem iterMemSpec (k minseq : Nat) (mem : Mem) (b e src p : Nat) (hbe : b ≤ 
       congr 1; omega
     · rw [ifF hc] at hw'; simp at hw' 
 
+/-! ## The kernel state, read as the spec model's state -/
+
+/-- The spec-model segment a stack entry stands for (positions relative to the root start b0). -/
+def segOf (b0 : Nat) (m : Mem) (e : StackEntry) : Seg := ⟨e.b - b0, slice (m.buf e.src) e.b (e.e - e.b)⟩
+
+/-- The finalization log, relative to b0. -/
+def finOf (b0 : Nat) (fin : List (Nat × Nat)) : List (Nat × Nat) := fin.map fun w => (w.1 - b0, w.2)
+
+theorem depthOK_head (n : Nat) (g g' : Seg) (r : List Seg) (h : g'.xs.length = g.xs.length)
+    (hd : depthOK n (g :: r)) : depthOK n (g' :: r) := ⟨by rw [h]; exact hd.1, hd.2⟩
+
+theorem cwPos (tgt : List Nat) (b m : Nat) (h : b + m ≤ tgt.length) :
+    (cw tgt b m).map Prod.fst = List.range' b m := by
+  simp only [cw]; exact List.map_fst_zip (by simp; omega)
+
+theorem owed_cons' (tgt : List Nat) (g g' : Seg) (r : List Seg) (hb : g'.b = g.b)
+    (hl : g'.xs.length = g.xs.length) : owed tgt (g' :: r) = owed tgt (g :: r) := by
+  simp [owed, hb, hl]
+
+/-- **(lemma)**: under the spec model's invariant, the top segment's positions are disjoint from
+every finalized position and from every other pending segment. -/
+theorem invDisjoint (S : Nat) (hS : 0 < S) (tgt : List Nat) (g : Seg) (rs : List Seg) (fin : List (Nat × Nat))
+    (h : Inv S tgt (g :: rs, fin)) :
+    (∀ w ∈ fin, w.1 < g.b ∨ g.b + g.xs.length ≤ w.1) ∧
+    (∀ g2 ∈ rs, g2.b + g2.xs.length ≤ g.b ∨ g.b + g.xs.length ≤ g2.b) := by
+  obtain ⟨hgood, _, hp⟩ := h
+  have hnd : ((fin ++ owed tgt (g :: rs)).map Prod.fst).Nodup := by
+    have := hp.map Prod.fst
+    rw [cwPos tgt 0 _ (by omega)] at this
+    exact this.nodup_iff.2 List.nodup_range'
+  rw [owed_cons, List.map_append, List.map_append] at hnd
+  have gg := hgood g List.mem_cons_self
+  rw [cwPos tgt _ _ gg.2.1] at hnd
+  obtain ⟨_, hnd2, hdisj⟩ := List.nodup_append.1 hnd
+  obtain ⟨_, _, hdisj2⟩ := List.nodup_append.1 hnd2
+  constructor
+  · intro w hw
+    by_cases hc : w.1 < g.b ∨ g.b + g.xs.length ≤ w.1
+    · exact hc
+    exfalso
+    exact hdisj _ (List.mem_map.2 ⟨w, hw, rfl⟩) _ (List.mem_append_left _ (List.mem_range'_1.2 ⟨by omega, by omega⟩)) rfl
+  · intro g2 hg2
+    by_cases hc : g2.b + g2.xs.length ≤ g.b ∨ g.b + g.xs.length ≤ g2.b
+    · exact hc
+    exfalso
+    have g2g := hgood g2 (List.mem_cons_of_mem _ hg2)
+    have l1 := gg.2.2
+    have l2 := g2g.2.2
+    let i := max g.b g2.b
+    have hi2 : i ∈ (owed tgt rs).map Prod.fst := by
+      simp only [owed, List.map_flatMap, List.mem_flatMap]
+      exact ⟨g2, hg2, by rw [cwPos tgt _ _ g2g.2.1]; exact List.mem_range'_1.2 ⟨by omega, by omega⟩⟩
+    exact hdisj2 i (List.mem_range'_1.2 ⟨by omega, by omega⟩) i hi2 rfl
+
+theorem zipReplicate (l : List Nat) (c : Nat) : l.zip (List.replicate l.length c) = l.map (·, c) := by
+  induction l with
+  | nil => rfl
+  | cons x l ih => simp [List.replicate_succ, ih]
+
+theorem range'Shift (a n b0 : Nat) (h : b0 ≤ a) : (List.range' a n).map (· - b0) = List.range' (a - b0) n := by
+  rw [List.range'_eq_map_range, List.range'_eq_map_range, List.map_map]
+  apply List.map_congr_left; intro i _; simp only [Function.comp]; omega
+
+/-- The kernel's invariant: the spec model's `Inv` for the state read off the kernel, every
+finalized position holds its logged value, nothing outside the sequence has changed, no error,
+and the recorded depth is within the K-08 bound. -/
+structure KInv (S b0 : Nat) (tgt : List Nat) (D0 A0 : Nat → Nat) (st : KS) : Prop where
+  entries : ∀ e ∈ st.stack, b0 ≤ e.b ∧ e.b ≤ e.e ∧ (e.src = 0 ∨ e.src = 1)
+  inv : Inv S tgt (st.stack.map (segOf b0 st.mem), finOf b0 st.fin)
+  finPos : ∀ w ∈ st.fin, b0 ≤ w.1 ∧ st.mem.D w.1 = w.2
+  frameD : ∀ i, (i < b0 ∨ b0 + tgt.length ≤ i) → st.mem.D i = D0 i
+  frameA : ∀ i, (i < b0 ∨ b0 + tgt.length ≤ i) → st.mem.A i = A0 i
+  noErr : st.serr = false
+  depth : st.maxDepth ≤ Nat.log2 (tgt.length / S) + 1
+
+theorem mapIf {α β : Type} (c : Prop) [Decidable c] (x : α) (f : α → β) :
+    (if c then [x] else []).map f = if c then [f x] else [] := by split <;> rfl
+
+theorem finOfZip (b0 a n : Nat) (h : b0 ≤ a) (X : List Nat) :
+    finOf b0 ((List.range' a n).zip X) = (List.range' (a - b0) n).zip X := by
+  simp only [finOf]
+  rw [← range'Shift a n b0 h, List.zip_map_left]; rfl
+
+theorem pushIfLen (S : Nat) (c : Seg) : (pushIf S c).length = if S ≤ c.xs.length then 1 else 0 := by
+  unfold pushIf; split <;> rfl
+
+set_option maxHeartbeats 20000000 in
+/-- **(lemma)** (R-13, R-14, E-10, K-08): one `lqsort` iteration preserves the kernel invariant and
+removes at least one element from the pending segments. -/
+theorem kStepInv (k S cap b0 : Nat) (tgt : List Nat) (D0 A0 : Nat → Nat) (hS : 0 < S)
+    (ht : tgt.Pairwise (· ≤ ·)) (hbd : ∀ x ∈ tgt, x ≤ 0xFFFFFFFF)
+    (hcap : Nat.log2 (tgt.length / S) + 1 < cap) (st : KS) (h : KInv S b0 tgt D0 A0 st)
+    (top : StackEntry) (rest : List StackEntry) (hst : st.stack = top :: rest) :
+    KInv S b0 tgt D0 A0 (kStep (2 ^ k) (Nat.two_pow_pos k) S cap st) ∧
+    mass ((kStep (2 ^ k) (Nat.two_pow_pos k) S cap st).stack.map
+        (segOf b0 (kStep (2 ^ k) (Nat.two_pow_pos k) S cap st).mem)) <
+      mass (st.stack.map (segOf b0 st.mem)) := by
+  obtain ⟨m, stk, serr, parts, alts, md, fin⟩ := st
+  simp only at hst; subst hst
+  have hT := Nat.two_pow_pos k
+  let n := tgt.length
+  let b := top.b
+  let e := top.e
+  let src := top.src
+  let S0 := m.buf src
+  let len := e - b
+  obtain ⟨hent, hinv, hfinPos, hfD, hfA, hnoErr, hdep⟩ := h
+  simp only at hent hinv hfinPos hfD hfA hnoErr hdep
+  obtain ⟨hb0, hbe, hsrc⟩ := hent top List.mem_cons_self
+  let g := segOf b0 m top
+  let restS := rest.map (segOf b0 m)
+  let finL := finOf b0 fin
+  have hinv' : Inv S tgt (g :: restS, finL) := hinv
+  have gg : good S tgt g := hinv'.1 g List.mem_cons_self
+  have hglen : g.xs.length = len := slice_length _ _ _
+  have hgb : g.b = b - b0 := rfl
+  have hlen : 0 < len := by have := gg.2.2; omega
+  have hfit : b - b0 + len ≤ n := by have := gg.2.1; omega
+  -- the pivot
+  let p := med3 (S0 b) (S0 ((b + e) / 2)) (S0 (e - 1))
+  have hp : p = medianOfThree g.xs := by
+    show med3 (S0 b) (S0 ((b + e) / 2)) (S0 (e - 1)) = medianOfThree (slice S0 b len)
+    rw [← kernelPivot S0 b len hlen, show b + len = e by omega]
+  -- the slice holds 32-bit codes
+  have winBd : ∀ x ∈ g.xs, x ≤ 0xFFFFFFFF := fun x hx =>
+    hbd x (List.mem_of_mem_drop (List.mem_of_mem_take (gg.1.subset hx)))
+  have hbd' : ∀ i, b ≤ i → i < e → S0 i ≤ 0xFFFFFFFF := by
+    intro i h1 h2
+    apply winBd
+    show S0 i ∈ slice S0 b len
+    rw [slice_eq]; exact List.mem_map.2 ⟨i, List.mem_range'_1.2 ⟨h1, by omega⟩, rfl⟩
+  -- the iteration's memory effects
+  obtain ⟨hperm, hL, hG, hsum, hframe, hlo, hup, hgapF, hgapP, hwlF, hwlP, hwgF, hwgP⟩ :=
+    iterMemSpec k S m b e src p hbe hsrc hbd'
+  let it := iterMem (2 ^ k) hT S m b e src p
+  let tm := ((List.range (2 ^ k)).flatMap (visits (2 ^ k) hT b e)).map S0
+  let L := it.2.1.L
+  let G := it.2.1.G
+  let dst := 1 - src
+  have hL' : L = (lowerPart p tm).length := hL
+  have hG' : G = (upperPart p tm).length := hG
+  have hsum' : L + tm.count p + G = e - b := hsum
+  have htmlen : tm.length = len := by rw [hperm.length_eq, slice_length]
+  have hdst : dst = 0 ∨ dst = 1 := by omega
+  -- the spec model's step on the reordered segment
+  let g' : Seg := ⟨b - b0, tm⟩
+  have gg' : good S tgt g' := by
+    refine ⟨?_, by show b - b0 + tm.length ≤ n; omega, by show S ≤ tm.length; have := gg.2.2; omega⟩
+    show tm.Perm ((tgt.drop (b - b0)).take tm.length)
+    rw [htmlen, ← hglen]; exact hperm.trans gg.1
+  have hdep' : depthOK n (g' :: restS) :=
+    depthOK_head n g g' restS (by show tm.length = g.xs.length; omega) hinv'.2.1
+  obtain ⟨f1, f2, f3, f4⟩ := stepFacts S n (fun _ => p) tgt ht g' restS finL gg' hdep'
+  let lo : Seg := ⟨b - b0, lowerPart p tm⟩
+  let hi : Seg := ⟨b - b0 + tm.length - (upperPart p tm).length, upperPart p tm⟩
+  let newSegs := (step2 S (fun _ => p) (g' :: restS, finL)).1
+  have hnew : newSegs = pushIf S (if hi.xs.length ≤ lo.xs.length then hi else lo) ++
+      pushIf S (if hi.xs.length ≤ lo.xs.length then lo else hi) ++ restS := rfl
+  have hnewFin : (step2 S (fun _ => p) (g' :: restS, finL)).2 =
+      finL ++ gapW (fun _ => p) g' ++ smallW S lo ++ smallW S hi := rfl
+  -- every new segment has at least S elements, so the new stack fits (K-08)
+  have newGood : ∀ x ∈ newSegs, good S tgt x := by
+    intro x hx
+    rcases f1 x hx with h | h
+    · exact hinv'.1 x (List.mem_cons_of_mem _ h)
+    · exact h
+  have newLen : newSegs.length ≤ Nat.log2 (n / S) + 1 :=
+    depthBound S n hS _ f2 (fun x hx => (newGood x hx).2.2)
+  -- the kernel's pushes
+  let lFirst := decide (L ≥ G)
+  let lb := if lFirst then b else e - G
+  let ll := if lFirst then L else G
+  let shb := if lFirst then e - G else b
+  let shl := if lFirst then G else L
+  let lE : StackEntry := ⟨lb, lb + ll, dst⟩
+  let sE : StackEntry := ⟨shb, shb + shl, dst⟩
+  let pushed := pushChildren S cap [lE, sE] rest md serr
+  have hk : kStep (2 ^ k) hT S cap ⟨m, top :: rest, serr, parts, alts, md, fin⟩ =
+      { mem := it.1, stack := pushed.1, serr := pushed.2.2, partitions := parts + 1,
+        alts := alts + (if 0 < L ∧ L < S then 1 else 0) + (if 0 < G ∧ G < S then 1 else 0),
+        maxDepth := pushed.2.1, fin := fin ++ it.2.1.gap ++ it.2.2.1 ++ it.2.2.2 } := rfl
+  rw [hk]
+  -- the rest of the stack is untouched
+  have hrest : rest.map (segOf b0 it.1) = restS := by
+    apply List.map_congr_left
+    intro x hx
+    obtain ⟨hx0, hxe, hxs⟩ := hent x (List.mem_cons_of_mem _ hx)
+    have hd := (invDisjoint S hS tgt g restS finL hinv').2 (segOf b0 m x) (List.mem_map.2 ⟨x, hx, rfl⟩)
+    simp only [segOf, slice_length, hgb, hglen] at hd
+    simp only [segOf]
+    congr 1
+    exact slice_congr _ _ _ _ fun i h1 h2 => hframe x.src hxs i (by omega)
+  -- a pushed lower child is lo, a pushed upper child is hi
+  have eqLo : S ≤ L → segOf b0 it.1 ⟨b, b + L, dst⟩ = lo := by
+    intro hS'; simp only [segOf, show b + L - b = L by omega]; rw [hlo hS']
+  have eqHi : S ≤ G → segOf b0 it.1 ⟨e - G, e - G + G, dst⟩ = hi := by
+    intro hS'; simp only [segOf, show e - G + G - (e - G) = G by omega]; rw [hup hS']
+    show (⟨e - G - b0, upperPart p tm⟩ : Seg) = ⟨b - b0 + tm.length - (upperPart p tm).length, upperPart p tm⟩
+    rw [← hG']; simp only [Seg.mk.injEq, and_true]; omega
+  have hlolen : lo.xs.length = L := hL'.symm
+  have hhilen : hi.xs.length = G := hG'.symm
+  have hroom : rest.length + (if S ≤ lE.e - lE.b then 1 else 0) + (if S ≤ sE.e - sE.b then 1 else 0) ≤ cap := by
+    have : newSegs.length = rest.length + (if S ≤ L then 1 else 0) + (if S ≤ G then 1 else 0) := by
+      rw [hnew, List.length_append, List.length_append, pushIfLen, pushIfLen, List.length_map]
+      by_cases hc : G ≤ L
+      · rw [ifT (show hi.xs.length ≤ lo.xs.length by omega), ifT (show hi.xs.length ≤ lo.xs.length by omega),
+          hlolen, hhilen]; omega
+      · rw [ifF (show ¬ hi.xs.length ≤ lo.xs.length by omega), ifF (show ¬ hi.xs.length ≤ lo.xs.length by omega),
+          hlolen, hhilen]; omega
+    have newLen' : newSegs.length ≤ Nat.log2 (tgt.length / S) + 1 := newLen
+    by_cases hc : G ≤ L
+    · simp only [lE, sE, lb, ll, shb, shl, lFirst, show L ≥ G from hc, decide_true, ↓reduceIte,
+        show b + L - b = L by omega, show e - G + G - (e - G) = G by omega]
+      by_cases s1 : S ≤ L <;> by_cases s2 : S ≤ G <;> simp only [s1, s2, ↓reduceIte] at this ⊢ <;> omega
+    · simp only [lE, sE, lb, ll, shb, shl, lFirst, show ¬ L ≥ G by omega, decide_false,
+        Bool.false_eq_true, ↓reduceIte, show b + L - b = L by omega, show e - G + G - (e - G) = G by omega]
+      by_cases s1 : S ≤ L <;> by_cases s2 : S ≤ G <;> simp only [s1, s2, ↓reduceIte] at this ⊢ <;> omega
+  obtain ⟨hp1, hp2, hp3⟩ := pushChildrenSpec S cap lE sE rest md hroom
+  have hpushed1 : pushed.1 = (if S ≤ sE.e - sE.b then [sE] else []) ++ (if S ≤ lE.e - lE.b then [lE] else []) ++ rest := by
+    show (pushChildren S cap [lE, sE] rest md serr).1 = _; rw [hnoErr]; exact hp1
+  have hstack : pushed.1.map (segOf b0 it.1) = newSegs := by
+    rw [hpushed1, List.map_append, List.map_append, mapIf, mapIf, hrest, hnew]
+    by_cases hc : G ≤ L
+    · have c1 : hi.xs.length ≤ lo.xs.length := by omega
+      simp only [↓reduceIte, pushIf, hlolen, hhilen, lE, sE, lb, ll, shb, shl, lFirst,
+        show L ≥ G from hc, decide_true, show b + L - b = L by omega, show e - G + G - (e - G) = G by omega]
+      by_cases s1 : S ≤ G <;> by_cases s2 : S ≤ L <;> simp only [s1, s2, ↓reduceIte, eqLo, eqHi]
+    · have c1 : ¬ hi.xs.length ≤ lo.xs.length := by omega
+      simp only [↓reduceIte, pushIf, hlolen, hhilen, lE, sE, lb, ll, shb, shl, lFirst,
+        show ¬ L ≥ G by omega, decide_false, Bool.false_eq_true, show b + L - b = L by omega,
+        show e - G + G - (e - G) = G by omega]
+      by_cases s1 : S ≤ G <;> by_cases s2 : S ≤ L <;> simp only [s1, s2, ↓reduceIte, eqLo, eqHi]
+  -- the finalization log is the spec model's finalized writes, up to order
+  have hcnt : e - G - (b + L) = tm.count p := by omega
+  have gapPerm : (finOf b0 it.2.1.gap).Perm (gapW (fun _ => p) g') := by
+    have e1 : finOf b0 it.2.1.gap = (it.2.1.gap.map Prod.fst).map fun i => (i - b0, p) := by
+      simp only [finOf, List.map_map]
+      apply List.map_congr_left; intro w hw
+      simp only [Function.comp, (hgapF w hw).2.2.1]
+    rw [e1]
+    refine (hgapP.map _).trans (List.Perm.of_eq ?_)
+    rw [show (fun i => (i - b0, p)) = (fun i => (i, p)) ∘ (· - b0) from rfl, ← List.map_map,
+      range'Shift _ _ _ (by omega), hcnt]
+    simp only [gapW, g']
+    rw [← hL', show b + L - b0 = b - b0 + L by omega]
+    have := zipReplicate (List.range' (b - b0 + L) (tm.count p)) p
+    rw [List.length_range'] at this; exact this.symm
+  have wlPerm : (finOf b0 it.2.2.1).Perm (smallW S lo) := by
+    refine (hwlP.map _).trans (List.Perm.of_eq ?_)
+    simp only [smallW, hlolen]
+    by_cases c1 : 0 < L ∧ L < S
+    · rw [ifT c1, ifT c1.2]; exact finOfZip b0 b L hb0 _
+    · by_cases c2 : L < S
+      · rw [ifF c1, ifT c2, show L = 0 by omega]; rfl
+      · rw [ifF c1, ifF c2]; rfl
+  have wgPerm : (finOf b0 it.2.2.2).Perm (smallW S hi) := by
+    refine (hwgP.map _).trans (List.Perm.of_eq ?_)
+    simp only [smallW, hhilen]
+    have hib : hi.b = e - G - b0 := by
+      show b - b0 + tm.length - (upperPart p tm).length = _
+      rw [← hG', htmlen]
+      have h1 : G ≤ e - b := by omega
+      have h2 : len = e - b := rfl
+      generalize G = x at h1 ⊢
+      omega
+    by_cases c1 : 0 < G ∧ G < S
+    · rw [ifT c1, ifT c1.2, hib]; exact finOfZip b0 (e - G) G (by omega) _
+    · by_cases c2 : G < S
+      · rw [ifF c1, ifT c2, show G = 0 by omega]; rfl
+      · rw [ifF c1, ifF c2]; rfl
+  have finPerm : (finOf b0 (fin ++ it.2.1.gap ++ it.2.2.1 ++ it.2.2.2)).Perm
+      (step2 S (fun _ => p) (g' :: restS, finL)).2 := by
+    rw [hnewFin]
+    simp only [finOf, List.map_append]
+    exact ((List.Perm.refl _).append gapPerm |>.append wlPerm).append wgPerm
+  -- lengths of the new stack
+  have hlen1 : pushed.1.length = newSegs.length := by rw [← hstack, List.length_map]
+  have hlen2 : pushed.1.length = rest.length + (if S ≤ lE.e - lE.b then 1 else 0) + (if S ≤ sE.e - sE.b then 1 else 0) := by
+    rw [hpushed1]; simp only [List.length_append]
+    split <;> split <;> simp <;> omega
+  have hmd : pushed.2.1 ≤ Nat.log2 (tgt.length / S) + 1 := by
+    have h3 : pushed.2.1 ≤ max md (rest.length + (if S ≤ lE.e - lE.b then 1 else 0) + (if S ≤ sE.e - sE.b then 1 else 0)) := by
+      show (pushChildren S cap [lE, sE] rest md serr).2.1 ≤ _; rw [hnoErr]; exact hp3
+    have newLen' : newSegs.length ≤ Nat.log2 (tgt.length / S) + 1 := newLen
+    generalize (if S ≤ lE.e - lE.b then 1 else 0) = x at h3 hlen2
+    generalize (if S ≤ sE.e - sE.b then 1 else 0) = y at h3 hlen2
+    omega
+  refine ⟨⟨?_, ?_, ?_, ?_, ?_, ?_, hmd⟩, ?_⟩
+  · -- entries
+    intro x hx
+    rw [hpushed1] at hx
+    simp only [List.mem_append] at hx
+    have hGe : G ≤ e - b := by omega
+    rcases hx with (hx | hx) | hx
+    · split at hx
+      · simp only [List.mem_singleton] at hx; subst hx
+        simp only [sE, shb, shl, lFirst]; split <;> refine ⟨by omega, by omega, hdst⟩
+      · simp at hx
+    · split at hx
+      · simp only [List.mem_singleton] at hx; subst hx
+        simp only [lE, lb, ll, lFirst]; split <;> refine ⟨by omega, by omega, hdst⟩
+      · simp at hx
+    · exact hent x (List.mem_cons_of_mem _ hx)
+  · -- the spec model's invariant
+    show Inv S tgt (pushed.1.map (segOf b0 it.1), finOf b0 (fin ++ it.2.1.gap ++ it.2.2.1 ++ it.2.2.2))
+    rw [hstack]
+    refine ⟨newGood, f2, ?_⟩
+    refine (finPerm.append_right _).trans (f3.trans ?_)
+    rw [owed_cons' tgt g g' restS rfl (by show tm.length = g.xs.length; omega)]
+    exact hinv'.2.2
+  · -- finalized positions
+    intro w hw
+    simp only [List.mem_append] at hw
+    rcases hw with ((hw | hw) | hw) | hw
+    · obtain ⟨h1, h2⟩ := hfinPos w hw
+      have hd := (invDisjoint S hS tgt g restS finL hinv').1 (w.1 - b0, w.2) (List.mem_map.2 ⟨w, hw, rfl⟩)
+      simp only [hgb, hglen] at hd
+      refine ⟨h1, ?_⟩
+      show it.1.D w.1 = w.2
+      rw [memD, hframe 0 (Or.inl rfl) w.1 (by omega), ← memD, h2]
+    · obtain ⟨h1, _, _, h4⟩ := hgapF w hw; exact ⟨by omega, h4⟩
+    · obtain ⟨h1, _, h3⟩ := hwlF w hw; exact ⟨by omega, h3⟩
+    · obtain ⟨h1, _, h3⟩ := hwgF w hw; exact ⟨by omega, h3⟩
+  · intro i hi
+    show it.1.D i = D0 i
+    rw [memD, hframe 0 (Or.inl rfl) i (by omega), ← memD]; exact hfD i hi
+  · intro i hi
+    show it.1.A i = A0 i
+    have := hframe 1 (Or.inr rfl) i (by omega)
+    simp only [Mem.buf, show (1 : Nat) ≠ 0 by decide, ↓reduceIte] at this
+    rw [this]; exact hfA i hi
+  · show (pushChildren S cap [lE, sE] rest md serr).2.2 = false; rw [hnoErr]; exact hp2
+  · -- the mass drops by the pivot's multiplicity, at least one
+    show mass (pushed.1.map (segOf b0 it.1)) < mass (g :: restS)
+    rw [hstack]
+    have hmem : p ∈ g.xs := by
+      rw [hp]; refine medianOfThreePicks _ (fun h0 => ?_)
+      have := congrArg List.length h0; rw [hglen] at this; simp at this; omega
+    have hc : 0 < tm.count p := by rw [hperm.count_eq]; exact List.count_pos_iff.2 hmem
+    have hm : mass (g' :: restS) = mass (g :: restS) := by
+      simp only [mass, List.map_cons, List.sum_cons]; congr 1; show tm.length = g.xs.length; omega
+    have f4' : mass newSegs + tm.count p ≤ mass (g' :: restS) := f4
+    omega
+
 end GpuQuicksort.Theorems
