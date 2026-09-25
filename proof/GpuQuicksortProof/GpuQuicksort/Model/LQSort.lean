@@ -138,7 +138,7 @@ def altsortK (T : Nat) (hT : 0 < T) (S : Nat → Nat) (b len : Nat) : List (Nat 
 /-! ## The kernel -/
 
 /-- One stack entry `{b, e, src}`. -/
-structure Entry where
+structure StackEntry where
   b : Nat
   e : Nat
   src : Nat
@@ -147,7 +147,7 @@ structure Entry where
 the statistics, and the finalization log. -/
 structure KS where
   mem : Mem
-  stack : List Entry
+  stack : List StackEntry
   serr : Bool
   partitions : Nat
   alts : Nat
@@ -156,8 +156,8 @@ structure KS where
 
 /-- `:218-229` — push the longer child, then the shorter, skipping children shorter than
 minseq; a push onto a full stack sets `serr` and stops. -/
-def pushChildren (minseq cap : Nat) (kids : List Entry) (st : List Entry) (md : Nat) (serr : Bool) :
-    List Entry × Nat × Bool :=
+def pushChildren (minseq cap : Nat) (kids : List StackEntry) (st : List StackEntry) (md : Nat) (serr : Bool) :
+    List StackEntry × Nat × Bool :=
   match kids with
   | [] => (st, md, serr)
   | c :: cs =>
