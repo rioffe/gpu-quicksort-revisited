@@ -562,4 +562,187 @@ theorem partitionDispatchSpec (k : Nat) (minMax : Bool) (mem : Mem) (recs : List
       rcases hx _ (pre.seq i hi) with h | h <;> omega
     · simp at hw
 
+/-! ## The gap fill -/
+
+/-- **(lemma)**: chunks of `chunk` slots from gs, the last clipped at ge, tile [gs, gs + min(n·chunk, ge − gs)). -/
+theorem chunksTile (gs ge chunk : Nat) :
+    ∀ n, (List.range n).flatMap (fun q => List.range' (gs + q * chunk) (min (gs + q * chunk + chunk) ge - (gs + q * chunk))) =
+      List.range' gs (min (n * chunk) (ge - gs))
+  | 0 => by simp
+  | n + 1 => by
+    rw [List.range_succ, List.flatMap_append, chunksTile gs ge chunk n, List.flatMap_cons, List.flatMap_nil,
+      List.append_nil, Nat.succ_mul]
+    by_cases h : gs + n * chunk < ge
+    · rw [show min (n * chunk) (ge - gs) = n * chunk by omega, List.range'_append_1]
+      congr 1; omega
+    · rw [show min (gs + n * chunk + chunk) ge - (gs + n * chunk) = 0 by omega, List.range'_zero, List.append_nil]
+      congr 1; omega
+
+theorem ceilMulGe (a nb : Nat) (h : 0 < nb) : a ≤ (a + nb - 1) / nb * nb := by
+  have := Nat.div_add_mod (a + nb - 1) nb
+  have := Nat.mod_lt (a + nb - 1) h
+  rw [Nat.mul_comm]; omega
+
+theorem flatMapIdx {α β : Type} (d : α) (F : α → List β) :
+    ∀ l : List α, l.flatMap F = (List.range l.length).flatMap fun i => F (l.getD i d)
+  | [] => rfl
+  | a :: l => by
+    rw [List.flatMap_cons, flatMapIdx d F l, List.length_cons, List.range_succ_eq_map, List.flatMap_cons,
+      List.flatMap_map]
+    rfl
+
+/-- What the host guarantees before the fill (and the partition dispatch delivers): each
+record's gap lies inside it; records are disjoint; every block belongs to a record; and record
+j's blocks carry the block numbers 0 … nb − 1 once each (`Sorter.swift:129-133`). -/
+structure FillPre (recs : List Rec) (blks : List Blk) (bs : Nat) : Prop where
+  bs_pos : 0 < bs
+  gap : ∀ j < recs.length, (recs.getD j dR).start ≤ (recs.getD j dR).lnext ∧
+    (recs.getD j dR).lnext ≤ (recs.getD j dR).gnext ∧ (recs.getD j dR).gnext ≤ (recs.getD j dR).end_
+  seq : ∀ i < blks.length, (blks.getD i dB).seq < recs.length
+  nums : ∀ j < recs.length, ((mineOf blks j).map fun i => ((blks.getD i dB).begin - (recs.getD j dR).start) / bs).Perm
+    (List.range (((recs.getD j dR).end_ - (recs.getD j dR).start + bs - 1) / bs))
+  disj : ∀ j j', j < recs.length → j' < recs.length → j ≠ j' →
+    (recs.getD j dR).end_ ≤ (recs.getD j' dR).start ∨ (recs.getD j' dR).end_ ≤ (recs.getD j dR).start
+
+/-- **(lemma)**: one fill block writes the pivot over its chunk of the gap, each slot once. -/
+theorem fillBlock (T : Nat) (hT : 0 < T) (bs : Nat) (r : Rec) (bk : Blk) :
+    let nb := (r.end_ - r.start + bs - 1) / bs
+    let q := (bk.begin - r.start) / bs
+    let chunk := (r.gnext - r.lnext + nb - 1) / nb
+    ((fillWrites T hT bs r bk).map Prod.fst).Perm
+      (List.range' (r.lnext + q * chunk) (min (r.lnext + q * chunk + chunk) r.gnext - (r.lnext + q * chunk))) ∧
+    ∀ w ∈ fillWrites T hT bs r bk, w.2 = r.pivot := by
+  intro nb q chunk
+  constructor
+  · simp only [fillWrites, List.map_flatMap, List.map_map]
+    exact stridesPerm T hT _ _ |>.trans (List.Perm.refl _) |> fun h => by simpa [Function.comp_def] using h
+  · intro w hw
+    simp only [fillWrites, List.mem_flatMap, List.mem_map] at hw
+    obtain ⟨_, _, _, _, rfl⟩ := hw; rfl
+
+theorem countMine (blks : List Blk) (n : Nat) (hseq : ∀ i < blks.length, (blks.getD i dB).seq < n) (i : Nat) :
+    ((List.range n).flatMap (mineOf blks)).count i = if i < blks.length then 1 else 0 := by
+  rw [List.count_flatMap]
+  have e : ∀ j ∈ List.range n, (List.count i ∘ mineOf blks) j =
+      if j = (if i < blks.length then (blks.getD i dB).seq else n) then 1 else 0 := by
+    intro j hj; rw [List.mem_range] at hj
+    simp only [Function.comp, (mineNodup blks j).count, mem_mine]
+    by_cases hi : i < blks.length
+    · simp only [hi, true_and, ↓reduceIte]
+      split <;> split <;> omega
+    · simp only [hi, false_and, ↓reduceIte]; simp; omega
+  rw [List.map_congr_left e, sumIndicator]
+  by_cases hi : i < blks.length
+  · have := hseq i hi
+    simp only [hi, ↓reduceIte]; rw [ifT this]
+  · simp [hi]
+
+theorem minePerm (blks : List Blk) (n : Nat) (hseq : ∀ i < blks.length, (blks.getD i dB).seq < n) :
+    ((List.range n).flatMap (mineOf blks)).Perm (List.range blks.length) := by
+  rw [List.perm_iff_count]; intro i
+  rw [countMine blks n hseq, List.nodup_range.count]; simp only [List.mem_range]
+
+set_option maxHeartbeats 2000000 in
+/-- **R-06, R-10, I-004** (T-08, T-09, T-15, T-16): the `gqsort_fill` dispatch, run after the
+partition dispatch has completed (R-10), writes each record's pivot over [lnext, gnext) in D —
+every index of every gap exactly once (the positions of all its writes are the union of the gaps,
+with no repetition) — and changes nothing else. -/
+theorem fillDispatchSpec (k bs : Nat) (mem : Mem) (recs : List Rec) (blks : List Blk) (pre : FillPre recs blks bs) :
+    let res := fillDispatch (2 ^ k) (Nat.two_pow_pos k) bs mem recs blks
+    (∀ j < recs.length, ∀ x, (recs.getD j dR).lnext ≤ x → x < (recs.getD j dR).gnext →
+      res.1.D x = (recs.getD j dR).pivot) ∧
+    (∀ x, (∀ j < recs.length, x < (recs.getD j dR).lnext ∨ (recs.getD j dR).gnext ≤ x) → res.1.D x = mem.D x) ∧
+    res.1.A = mem.A ∧
+    (res.2.map Prod.fst).Perm ((List.range recs.length).flatMap fun j =>
+      List.range' (recs.getD j dR).lnext ((recs.getD j dR).gnext - (recs.getD j dR).lnext)) := by
+  intro res
+  have hT := Nat.two_pow_pos k
+  let F := fun i => fillWrites (2 ^ k) hT bs (recs.getD (blks.getD i dB).seq dR) (blks.getD i dB)
+  have hws : res.2 = (List.range blks.length).flatMap F := by
+    show blks.flatMap _ = _; rw [flatMapIdx dB]; rfl
+  -- record j's fill positions tile its gap
+  have recPos : ∀ j < recs.length, (((mineOf blks j).flatMap F).map Prod.fst).Perm
+      (List.range' (recs.getD j dR).lnext ((recs.getD j dR).gnext - (recs.getD j dR).lnext)) := by
+    intro j hj
+    let r := recs.getD j dR
+    let nb := (r.end_ - r.start + bs - 1) / bs
+    let chunk := (r.gnext - r.lnext + nb - 1) / nb
+    let q := fun i => ((blks.getD i dB).begin - r.start) / bs
+    let piece := fun q => List.range' (r.lnext + q * chunk) (min (r.lnext + q * chunk + chunk) r.gnext - (r.lnext + q * chunk))
+    have e1 : ((mineOf blks j).flatMap F).map Prod.fst = (mineOf blks j).flatMap fun i => (F i).map Prod.fst := by
+      simp [List.map_flatMap]
+    rw [e1]
+    have step1 : ((mineOf blks j).flatMap fun i => (F i).map Prod.fst).Perm ((mineOf blks j).flatMap fun i => piece (q i)) := by
+      refine GpuQuicksortSpec.GpuQuicksort.Pipeline.flatMap_perm_congr _ _ _ fun i hi => ?_
+      have hs := ((mem_mine blks j i).1 hi).2
+      have := (fillBlock (2 ^ k) hT bs r (blks.getD i dB)).1
+      simp only [F, hs]; exact this
+    refine step1.trans ?_
+    rw [show ((mineOf blks j).flatMap fun i => piece (q i)) = ((mineOf blks j).map q).flatMap piece by
+      rw [List.flatMap_map]]
+    refine ((pre.nums j hj).flatMap_right piece).trans (List.Perm.of_eq ?_)
+    obtain ⟨g1, g2, g3⟩ := pre.gap j hj
+    have g1' : r.start ≤ r.lnext := g1
+    have g2' : r.lnext ≤ r.gnext := g2
+    have g3' : r.gnext ≤ r.end_ := g3
+    show (List.range nb).flatMap piece = _
+    rw [chunksTile]
+    congr 1
+    apply Nat.min_eq_right
+    by_cases hnb : 0 < nb
+    · rw [Nat.mul_comm]; exact ceilMulGe _ _ hnb
+    · have hx : r.end_ - r.start + bs - 1 < bs := by
+        rcases Nat.lt_or_ge (r.end_ - r.start + bs - 1) bs with h | h
+        · exact h
+        · exact absurd (Nat.div_pos h pre.bs_pos) hnb
+      have : r.gnext - r.lnext = 0 := by omega
+      rw [this]; exact Nat.zero_le _
+  -- every write lands in its record's gap, with its record's pivot
+  have wIn : ∀ i < blks.length, ∀ w ∈ F i,
+      let j := (blks.getD i dB).seq
+      (recs.getD j dR).lnext ≤ w.1 ∧ w.1 < (recs.getD j dR).gnext ∧ w.2 = (recs.getD j dR).pivot := by
+    intro i hi w hw j
+    have hj := pre.seq i hi
+    have := (recPos j hj).subset (List.mem_map.2 ⟨w, List.mem_flatMap.2 ⟨i, (mem_mine blks j i).2 ⟨hi, rfl⟩, hw⟩, rfl⟩)
+    have hr := List.mem_range'_1.1 this
+    exact ⟨hr.1, by omega, (fillBlock (2 ^ k) hT bs _ _).2 w hw⟩
+  have gapIn : ∀ j < recs.length, ∀ x, (recs.getD j dR).lnext ≤ x → x < (recs.getD j dR).gnext →
+      (recs.getD j dR).start ≤ x ∧ x < (recs.getD j dR).end_ := by
+    intro j hj x h1 h2; have := pre.gap j hj; omega
+  refine ⟨fun j hj x h1 h2 => ?_, fun x hx => ?_, rfl, ?_⟩
+  · show applyW res.2 mem.D x = _
+    have hx : x ∈ ((mineOf blks j).flatMap F).map Prod.fst :=
+      (recPos j hj).symm.subset (List.mem_range'_1.2 ⟨h1, by omega⟩)
+    obtain ⟨w, hw, he⟩ := List.mem_map.1 hx
+    obtain ⟨i, hi, hwi⟩ := List.mem_flatMap.1 hw
+    have hil := ((mem_mine blks j i).1 hi).1
+    have hwmem : w ∈ res.2 := by rw [hws]; exact List.mem_flatMap.2 ⟨i, List.mem_range.2 hil, hwi⟩
+    refine applyW_uniq _ x _ (fun w' hw' he' => ?_) mem.D ⟨w, hwmem, he⟩
+    rw [hws] at hw'
+    obtain ⟨i', hi', hw''⟩ := List.mem_flatMap.1 hw'
+    rw [List.mem_range] at hi'
+    obtain ⟨a1, a2, a3⟩ := wIn i' hi' w' hw''
+    rw [a3]
+    by_cases hne : (blks.getD i' dB).seq = j
+    · rw [hne]
+    · exfalso
+      have := gapIn _ (pre.seq i' hi') w'.1 a1 a2
+      have := gapIn j hj x h1 h2
+      rcases pre.disj _ _ (pre.seq i' hi') hj hne with h | h <;> omega
+  · show applyW res.2 mem.D x = _
+    apply applyW_not
+    rw [hws]
+    intro hmem
+    obtain ⟨w, hw, he⟩ := List.mem_map.1 hmem
+    obtain ⟨i, hi, hw'⟩ := List.mem_flatMap.1 hw
+    rw [List.mem_range] at hi
+    obtain ⟨a1, a2, _⟩ := wIn i hi w hw'
+    rcases hx _ (pre.seq i hi) with h | h <;> omega
+  · rw [hws, List.map_flatMap]
+    refine ((minePerm blks recs.length pre.seq).symm.flatMap_right _).trans ?_
+    rw [List.flatMap_assoc]
+    refine GpuQuicksortSpec.GpuQuicksort.Pipeline.flatMap_perm_congr _ _ _ fun j hj => ?_
+    rw [← List.map_flatMap]
+    exact recPos j (List.mem_range.1 hj)
+
 end GpuQuicksort.Theorems
