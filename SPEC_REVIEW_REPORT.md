@@ -4,7 +4,7 @@
 > - **Round:** 2. The round-1 report (on v0.2, findings F-001..F-019) is in git history at commit `a1720d1`. This round's new findings start at **F-020** so their ids never collide with the round-1 ids that the v0.3 revision history cites.
 > - **Reviewer:** spec-review skill, four passes (comprehension, local precision, cross-consistency, implementation simulation)
 > - **Date:** 2026-09-25
-> - **Source of intent checked against:** `gpu-quicksort.md` (Cederman and Tsigas 2009), cited as [P …]
+> - **Source of intent checked against:** Cederman and Tsigas 2009, [doi:10.1145/1498698.1564500](https://doi.org/10.1145/1498698.1564500), cited as [P …]
 
 ## 1. Executive Summary
 

@@ -30,7 +30,7 @@ There are no prior builds. Measured facts about the starting tree and the enviro
 
 | Item | Measured |
 | ---- | -------- |
-| Repository | git, 7 commits; paper PDF, `gpu-quicksort.md`, `figures/`, `SPEC.md` v0.4, `SPEC_REVIEW_REPORT.md` (round 2: Level 3, READY WITH MINOR FIXES, all findings folded into v0.4) |
+| Repository | git, 7 commits; the paper (kept locally, not in the repository), `SPEC.md` v0.4, `SPEC_REVIEW_REPORT.md` (round 2: Level 3, READY WITH MINOR FIXES, all findings folded into v0.4) |
 | Source or test code | none (0 files under `Sources/`, `Tests/`) |
 | `speccheck check --spec SPEC.md --judge mock` | 128 ids, 128 uncited, 0 dangling, 0 stale; 299 edges (117 verifies, 99 depends_on, 83 affects) |
 | Swift | Apple Swift 6.4 (swiftlang-6.4.0.34.1), Xcode 27.0 (27A266a) |

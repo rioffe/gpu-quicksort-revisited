@@ -1,6 +1,8 @@
 # GPU-Quicksort on Metal
 
-A Swift + Metal implementation of **GPU-Quicksort** (Cederman and Tsigas, *GPU-Quicksort: A Practical Quicksort Algorithm for Graphics Processors*, ACM JEA 14, Art. 1.4, 2009, [doi:10.1145/1498698.1564500](https://doi.org/10.1145/1498698.1564500)) for Apple silicon GPUs. It includes a library, a CLI for benchmarking, verification and tuning, and a test suite traced to [`SPEC.md`](SPEC.md) v0.4.
+A Swift + Metal implementation of **GPU-Quicksort** (Cederman and Tsigas, *GPU-Quicksort: A Practical Quicksort Algorithm for Graphics Processors*, ACM JEA 14, Art. 1.4, 2009, [doi:10.1145/1498698.1564500](https://doi.org/10.1145/1498698.1564500)) for Apple silicon GPUs. It includes a library, a CLI for benchmarking, verification and tuning, and a test suite traced to [`SPEC.md`](SPEC.md) v0.5.
+
+The paper itself is not included in this repository; read it at the DOI above. `SPEC.md` cites it as [P §n], [P Alg n], [P Fig n] and [P Tab n].
 
 The algorithm runs in two phases. In phase one, several threadgroups cooperate on one sequence. Each threadgroup counts its section, runs a prefix sum, reserves output space with one atomic fetch-and-add per side, and scatters into an auxiliary buffer; the host loops until enough independent subsequences exist. In phase two, each threadgroup sorts one subsequence on its own, using an explicit stack (shorter part first) and a bitonic sort once a part fits in threadgroup memory.
 

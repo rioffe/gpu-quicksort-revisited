@@ -4,3 +4,13 @@
 .DS_Store
 build/
 junit*.xml
+
+# The paper (ACM, © 2009) is kept locally only and never committed; see README for the DOI.
+1498698.1564500.pdf
+gpu-quicksort.md
+gpu-quicksort.pdf
+figures/
+# Local PDF renders and pandoc/mermaid artifacts.
+SPEC.pdf
+backup/
+mermaid-filter.err
