@@ -400,4 +400,19 @@ theorem smallCountEntry (count : Int) (maxKeys : Nat) (shared : Bool) (length : 
   constructor <;> intro _ <;>
     simp [sortEntry, show ¬ (count < 0 ∨ count > maxKeys) by omega, h1]
 
+/-! ## optp -/
+
+/-- **K-05** (T-20): the code's `optp` — `1 << min(Int(floor(log2(max(s·k + m, 1)) + 0.5)), 40)` in
+IEEE doubles — reproduces the spec's worked examples for the paper's 8800GTX constants at 1M and 16M
+keys, and agrees there with the spec model's formula. These are the values `resolve` clamps
+(`resolveDefaults`). Checked by evaluation: `native_decide` trusts Lean's compiled `Float`, which
+calls the platform's `log2`, as the Swift code does. -/
+theorem optpCodeExamples :
+    optpOf (optpExp (2 ^ 20) 0.00001172 53) = 64 ∧ optpOf (optpExp (2 ^ 20) 0.00003748 476) = 512 ∧
+    optpOf (optpExp (2 ^ 20) 0.00004685 211) = 256 ∧ optpOf (optpExp (2 ^ 24) 0.00001172 53) = 256 ∧
+    optpOf (optpExp (2 ^ 24) 0.00003748 476) = 1024 ∧ optpOf (optpExp (2 ^ 24) 0.00004685 211) = 1024 ∧
+    optpOf (optpExp (2 ^ 20) 0.00001172 53) = GpuQuicksortSpec.GpuQuicksort.Model.optp (2 ^ 20) 0.00001172 53 ∧
+    optpOf (optpExp (2 ^ 24) 0.00004685 211) = GpuQuicksortSpec.GpuQuicksort.Model.optp (2 ^ 24) 0.00004685 211 := by
+  native_decide
+
 end GpuQuicksort.Theorems

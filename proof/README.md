@@ -31,7 +31,7 @@ Under those conditions:
 - `Theorems/` holds the proofs, one file per model, plus `TGPartition` and `AltSort`.
 - `Deferral.lean` lists what is proven, what is not, the trust boundary, and the table of spec ids carried by tests.
 
-**Coverage:** 45 of the spec's 88 ids are proven against the code, each tagged in bold on exactly one theorem. 42 are carried by named §9 tests (listed in `Deferral.lean`). 1 is excluded (O-1, retired).
+**Coverage:** 52 of the spec's 88 ids are proven against the code, each tagged in bold on exactly one theorem. 35 are carried by named §9 tests (listed in `Deferral.lean`). 1 is excluded (O-1, retired).
 
 ## What is proven
 
@@ -54,7 +54,14 @@ Under those conditions:
   - the block layout (K-06) and pivots (R-11);
   - the iteration cap (K-07);
   - the loop invariant, including that empty children are dropped (R-08, E-17);
-  - the whole sort (R-01, R-02, R-03, R-12, R-17, I-001, I-002, I-003, I-008, E-03, E-13, E-24).
+  - the whole sort (R-01, R-02, R-03, R-12, R-17, I-001, I-002, I-003, I-008, E-03, E-13, E-24);
+  - the bookkeeping buffers are never overrun (K-09).
+- **Progress:**
+  - live sequences stay disjoint, and every host pivot leaves both children strictly shorter (I-005);
+  - all-equal input takes one phase-one iteration and no phase two (K-10, E-04).
+- **Numbers:**
+  - the code's `optp`, in `Float`, reproduces the spec's worked examples (K-05);
+  - the transcribed MT19937 matches the C++ standard's reference value, and the generators compute the C-08 formulas (C-08, R-20).
 
 ## What is assumed
 
@@ -64,8 +71,8 @@ Under those conditions:
   - `simd_min`/`simd_max` reduce over the simdgroup;
   - phase two's threadgroups each touch only their own sequence (proved per threadgroup) and are modeled one after another.
 - **32-bit wrap-around:** the kernels' `uint` arithmetic is modeled in `Nat`. K-01 (no overflow for n ≤ 2^31 − 1) is carried by its tests.
-- **`optp`:** its exponent `Int(floor(log2(max(x, 1)) + 0.5))` is computed in Doubles. The model takes it as an input, and every resolver theorem holds for any value; T-20 checks the concrete defaults.
-- **`bv_decide`:** the codec's 2^32-pattern checks additionally trust Lean's compiled `bv_decide` checker.
+- **`optp`:** the resolver theorems hold for any exponent. The worked examples (K-05) are checked by evaluating the transcribed Double code with Lean's `Float`, which calls the platform's `log2`.
+- **Evaluation:** `bv_decide` (the codec's 2^32 patterns) and `native_decide` (`optp`'s examples, MT19937's reference value) trust Lean's compiled evaluator.
 
 ## Commands
 

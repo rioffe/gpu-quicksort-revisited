@@ -17,7 +17,7 @@ without overflow.
 | ------ | ----- |
 | `Errors.swift:2-15` `GPUQuicksortError` (12 cases; payloads dropped) | `LibError` |
 | `Common.swift:50-59` `CLI.exitCode(for:)` | `cliExitCode` |
-| `ParameterResolver.swift:5-9` `optp` | `optpOf`: `1 << min(e, 40)` with the exponent `e = Int(floor(log2(max(x,1)) + 0.5))` an input (**not modeled**: Double `log2`/`floor`; T-20 carries the values) |
+| `ParameterResolver.swift:5-9` `optp` | `optpExp` (the Double exponent, in Lean's `Float`) and `optpOf` (`1 << min(e, 40)`); `resolve` takes the exponents as inputs, so its theorems hold for any value |
 | `ParameterResolver.swift:12-17` byte formulas | the spec model's `phaseOneBytes`, `phaseTwoBytes` (identical text) |
 | `ParameterResolver.swift:19` `isPow2` | `isPow2S` |
 | `ParameterResolver.swift:22-27` `maxT` | `maxTFrom` (the `while` loop from 1024) |
@@ -69,6 +69,12 @@ structure Resolved where
   minseq : Nat
   iterations : Nat
 deriving DecidableEq, Repr
+
+/-- `ParameterResolver.swift:6-7` — the exponent `Int(floor(log2(max(x, 1)) + 0.5))` with
+x = Double(s)·k + m, in IEEE doubles (Swift's `max(x, y)` is `y >= x ? y : x`). -/
+def optpExp (s : Nat) (k m : Float) : Nat :=
+  let x := s.toFloat * k + m
+  (Float.floor (Float.log2 (if 1 ≥ x then 1 else x) + 0.5)).toUInt64.toNat
 
 /-- `ParameterResolver.swift:8` — `1 << min(e, 40)`, for the exponent e the Double code computes. -/
 def optpOf (e : Nat) : Nat := 2 ^ min e 40

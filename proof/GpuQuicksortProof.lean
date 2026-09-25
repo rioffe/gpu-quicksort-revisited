@@ -15,3 +15,6 @@ import GpuQuicksortProof.GpuQuicksort.Theorems.GQSort
 import GpuQuicksortProof.GpuQuicksort.Model.Sorter
 import GpuQuicksortProof.GpuQuicksort.Theorems.Sorter
 import GpuQuicksortProof.GpuQuicksort.Deferral
+import GpuQuicksortProof.GpuQuicksort.Model.Gen
+import GpuQuicksortProof.GpuQuicksort.Theorems.Gen
+import GpuQuicksortProof.GpuQuicksort.Theorems.Progress

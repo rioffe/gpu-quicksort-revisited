@@ -30,12 +30,21 @@ Transcription of the host orchestration `Sources/GPUQuicksort/Sorter.swift`: `ru
 | `:187-194` `work = nextWork`, observers, diagnostics; `done + work` merged | `p1Iter`, `phaseOne` |
 | `:204-241` phase two: one `lqsort` threadgroup per sequence, `stackCap` 32, error flag → `internalInvariantViolated` | `phaseTwo` |
 | `:25-31, 45-49, 188-190, 197-200` observers, diagnostics, timing, counters | not modeled: reporting (T-21, T-22) |
+| `BufferPool.swift:38-43` `bookkeeping(maxseq:)`: 40 M + 16·2M + 16·2M + 16·2M bytes | `bookkeepingBytes` |
+| `GPUQuicksort.swift:118` `report.auxiliaryBytes = 4 * count`; `BufferPool.swift:24-30` the cached A | `auxBytes` |
 
 Phase two's threadgroups each touch only their own sequence (proved per threadgroup in `LQSort`),
 so the dispatch is modeled as running them one after another.
 -/
 
 namespace GpuQuicksort.Model
+
+/-- `BufferPool.swift:38-43` — the bookkeeping buffers' bytes for maxseq M: records, blocks,
+phase-two sequences, phase-two statistics. -/
+def bookkeepingBytes (M : Nat) : Nat := 40 * M + 16 * 2 * M + 16 * 2 * M + 16 * 2 * M
+
+/-- `GPUQuicksort.swift:118` — the reported auxiliary bytes. -/
+def auxBytes (n : Nat) : Nat := 4 * n
 
 /-- `Sorter.swift:84` — a sequence [begin, end) in buffer `src`. -/
 structure SeqD where

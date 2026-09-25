@@ -307,7 +307,12 @@ theorem p1BodyInv (k m minlength : Nat) (minMax : Bool) (o : Orders)
     (ho : ∀ blks j, ((o blks).1 j).Perm (mineOf blks j) ∧ ((o blks).2 j).Perm (mineOf blks j))
     (tgt : List Nat) (ht : tgt.Pairwise (· ≤ ·)) (D0 A0 : Nat → Nat) (st : P1) (h : CInv tgt D0 A0 st) :
     ∃ st', p1Body (2 ^ k) (Nat.two_pow_pos k) m minlength minMax o st = some st' ∧ CInv tgt D0 A0 st' ∧
-      st'.iteration = st.iteration + 1 ∧ st'.capReached = st.capReached := by
+      st'.iteration = st.iteration + 1 ∧ st'.capReached = st.capReached ∧
+      (∃ X, st'.done = st.done ++ X ∧
+        ∀ c ∈ st'.work.map (·.1) ++ X, ∃ j < st.work.length,
+          ((c.end_ - c.begin = (lowerPart (st.work.getD j dW).2 (segD st.mem (st.work.getD j dW).1).xs).length) ∨
+           (c.end_ - c.begin = (upperPart (st.work.getD j dW).2 (segD st.mem (st.work.getD j dW).1).xs).length)) ∧
+          (st.work.getD j dW).1.begin ≤ c.begin ∧ c.end_ ≤ (st.work.getD j dW).1.end_) := by
   have hT := Nat.two_pow_pos k
   let work := st.work
   let W := work.length
@@ -416,7 +421,6 @@ theorem p1BodyInv (k m minlength : Nat) (minMax : Bool) (o : Orders)
              iteration := st.iteration + 1, capReached := st.capReached, fills := st.fills ++ fd.2 } := by
     show (if (pd.2.all fun r => decide (r.start ≤ r.lnext ∧ r.lnext ≤ r.gnext ∧ r.gnext ≤ r.end_)) then _ else none) = _
     rw [ifT hguard]
-  refine ⟨_, hbody, ?_, rfl, rfl⟩
   -- the sequences after the iteration
   let cws := fun j => childSeqs (pd.2.getD j dR)
   have hkidsSeqs : kids.map (·.1) = (List.range W).flatMap cws := by
@@ -623,6 +627,37 @@ theorem p1BodyInv (k m minlength : Nat) (minMax : Bool) (o : Orders)
     congr 1
     · congr 1; exact List.map_congr_left doneSame
     · simp only [owed, List.map_flatMap, List.flatMap_assoc]
+  -- every new sequence is a child of one record, inside it, with the length of one of its parts
+  have childProp : ∀ c ∈ (List.range W).flatMap cws, ∃ j < W,
+      ((c.end_ - c.begin = (lowerPart (pOf j) (gOf j).xs).length) ∨
+       (c.end_ - c.begin = (upperPart (pOf j) (gOf j).xs).length)) ∧
+      (work.getD j dW).1.begin ≤ c.begin ∧ c.end_ ≤ (work.getD j dW).1.end_ := by
+    intro c hc
+    obtain ⟨j, hj, hcj⟩ := List.mem_flatMap.1 hc
+    rw [List.mem_range] at hj
+    obtain ⟨a1, a2, a3, a4, _, _, a7, _, _⟩ := recFacts j hj
+    have hlen : (gOf j).xs.length = (work.getD j dW).1.end_ - (work.getD j dW).1.begin := slice_length _ _ _
+    have hbe := (hwf _ (getDMem' work j dW hj)).1
+    have hb : (gOf j).b = (work.getD j dW).1.begin := rfl
+    refine ⟨j, hj, ?_⟩
+    rcases childMem j hj c hcj with ⟨rfl, _⟩ | ⟨rfl, _⟩
+    · refine ⟨Or.inl (by show (pd.2.getD j dR).lnext - (pd.2.getD j dR).start = _; rw [a1, a3]; omega), ?_, ?_⟩
+      · show (work.getD j dW).1.begin ≤ (pd.2.getD j dR).start; rw [a1]; omega
+      · show (pd.2.getD j dR).lnext ≤ (work.getD j dW).1.end_; rw [a3]; omega
+    · refine ⟨Or.inr (by show (pd.2.getD j dR).end_ - (pd.2.getD j dR).gnext = _; rw [a2, a4]; omega), ?_, ?_⟩
+      · show (work.getD j dW).1.begin ≤ (pd.2.getD j dR).gnext; rw [a4]; omega
+      · show (pd.2.getD j dR).end_ ≤ (work.getD j dW).1.end_; rw [a2]; omega
+  refine ⟨_, hbody, ?_, rfl, rfl, ⟨(kids.filter fun c => c.2.2).map fun c => c.1, rfl, fun c hc => ?_⟩⟩
+  rotate_left
+  · apply childProp
+    rw [← hkidsSeqs]
+    rcases List.mem_append.1 hc with h | h
+    · simp only [List.map_map, List.mem_map, List.mem_filter] at h
+      obtain ⟨c', ⟨hc', _⟩, rfl⟩ := h
+      exact List.mem_map.2 ⟨c', hc', rfl⟩
+    · simp only [List.mem_map, List.mem_filter] at h
+      obtain ⟨c', ⟨hc', _⟩, rfl⟩ := h
+      exact List.mem_map.2 ⟨c', hc', rfl⟩
   refine ⟨fun c hc => ?_, fun c hc => ?_, ?_, fun w hw => ?_, fun i hi => ?_, fun i hi => ?_⟩
   · -- well-formed sequences
     rcases List.mem_append.1 (hseqs.subset hc) with hc | hc
@@ -974,5 +1009,138 @@ theorem p1IterCap (T : Nat) (hT : 0 < T) (m minlength maxIter : Nat) (minMax : B
           have := p1BodyIter T hT m minlength minMax _ st st1 h1
           exact p1IterCap T hT m minlength maxIter minMax ords f st1 st' (by omega) e
     · simp only [Option.some.injEq] at e; rw [← e]; exact h
+
+/-! ## The bookkeeping buffers (K-09) -/
+
+theorem blocksOfLen (bs : Nat) (hbs : 0 < bs) (j e b : Nat) (h : b ≤ e) :
+    (blocksOf bs hbs j e b).length = (e - b + bs - 1) / bs := by
+  have := blocksOfNums bs hbs j e b (e - b) 0 (by omega) (by omega)
+  simp only [Nat.zero_mul, Nat.add_zero] at this
+  have := congrArg List.length this
+  rw [List.length_map, List.length_range'] at this; exact this
+
+theorem ceilSum (bs : Nat) (hbs : 0 < bs) :
+    ∀ ls : List Nat, bs * (ls.map fun l => (l + bs - 1) / bs).sum ≤ ls.sum + ls.length * (bs - 1)
+  | [] => by simp
+  | l :: ls => by
+    have ih := ceilSum bs hbs ls
+    have h1 : bs * ((l + bs - 1) / bs) ≤ l + bs - 1 := by rw [Nat.mul_comm]; exact Nat.div_mul_le_self _ _
+    simp only [List.map_cons, List.sum_cons, List.length_cons, Nat.mul_add, Nat.succ_mul]
+    omega
+
+/-- **(lemma)**: one iteration dispatches fewer than M + |work| threadgroups. -/
+theorem mkBlocksBound (T : Nat) (M : Nat) (hM : 0 < M) (work : List (SeqD × Nat))
+    (hwf : ∀ w ∈ work, w.1.begin ≤ w.1.end_) :
+    let total := (work.map fun w => w.1.end_ - w.1.begin).sum
+    let bs := max T ((total + M - 1) / M)
+    ∀ hbs : 0 < bs, (mkBlocks bs hbs work).length < M + work.length ∨ work = [] := by
+  intro total bs hbs
+  by_cases hw : work = []
+  · exact Or.inr hw
+  left
+  have hlen : (mkBlocks bs hbs work).length = (work.map fun w => (w.1.end_ - w.1.begin + bs - 1) / bs).sum := by
+    simp only [mkBlocks, List.length_flatMap]
+    rw [show (work.map fun w => (w.1.end_ - w.1.begin + bs - 1) / bs) =
+        (List.range work.length).map fun j => ((work.getD j dW).1.end_ - (work.getD j dW).1.begin + bs - 1) / bs by
+      apply List.ext_getElem
+      · simp
+      · intro i h1 h2
+        simp only [List.length_map] at h1
+        simp [List.getD_eq_getElem?_getD, List.getElem?_eq_getElem h1]]
+    congr 1; apply List.map_congr_left; intro j hj
+    rw [List.mem_range] at hj
+    exact blocksOfLen bs hbs j _ _ (hwf _ (getDMem' work j dW hj))
+  have hc := ceilSum bs hbs (work.map fun w => w.1.end_ - w.1.begin)
+  rw [List.map_map, List.length_map] at hc
+  simp only [Function.comp_def] at hc
+  have htot : total ≤ bs * M := by
+    have h1 := ceilMulGe total M hM
+    have h2 : (total + M - 1) / M ≤ bs := Nat.le_max_right _ _
+    exact Nat.le_trans h1 (Nat.mul_le_mul_right M h2)
+  have hW : 0 < work.length := List.length_pos_iff.2 hw
+  rw [hlen]
+  have hlt : bs * (work.map fun w => (w.1.end_ - w.1.begin + bs - 1) / bs).sum < bs * (M + work.length) := by
+    have : work.length * (bs - 1) < work.length * bs :=
+      Nat.mul_lt_mul_of_pos_left (by omega) hW
+    rw [Nat.mul_add, Nat.mul_comm bs work.length]
+    omega
+  exact Nat.lt_of_mul_lt_mul_left hlt
+
+theorem childrenLen (minMax : Bool) (minlength : Nat) (mem : Mem) (r : Rec) :
+    (childrenOf minMax minlength mem r).length ≤ 2 := by
+  simp only [childrenOf, List.length_map]
+  exact Nat.le_trans (List.length_filter_le _ _) (by simp)
+
+/-- **(lemma)**: an iteration at most doubles the sequences it partitions. -/
+theorem p1BodyCount (T : Nat) (hT : 0 < T) (m minlength : Nat) (minMax : Bool) (o : Orders) (st st' : P1)
+    (h : p1Body T hT m minlength minMax o st = some st') :
+    st'.work.length + st'.done.length ≤ st.done.length + 2 * st.work.length := by
+  unfold p1Body at h
+  dsimp only at h
+  split at h
+  · simp only [Option.some.injEq] at h
+    rw [← h]
+    have key : ∀ (R : List Rec) (mem' : Mem), R.length = st.work.length →
+        ((R.flatMap (childrenOf minMax minlength mem')).filter fun c => !c.2.2).length +
+          (st.done.length + ((R.flatMap (childrenOf minMax minlength mem')).filter fun c => c.2.2).length) ≤
+        st.done.length + 2 * st.work.length := by
+      intro R mem' hR
+      have gen : ∀ R' : List Rec, (R'.flatMap (childrenOf minMax minlength mem')).length ≤ 2 * R'.length := by
+        intro R'
+        induction R' with
+        | nil => simp
+        | cons r R' ih =>
+          simp only [List.flatMap_cons, List.length_append, List.length_cons]
+          have := childrenLen minMax minlength mem' r
+          omega
+      have hk2 : (R.flatMap (childrenOf minMax minlength mem')).length ≤ 2 * st.work.length := hR ▸ gen R
+      have e := (List.filter_append_perm (fun c : SeqD × Nat × Bool => !c.2.2) (R.flatMap (childrenOf minMax minlength mem'))).length_eq
+      simp only [Bool.not_not, List.length_append] at e
+      omega
+    simp only [List.length_map, List.length_append]
+    exact key _ _ (by rw [partitionLen, mkRecsLen])
+  · cases h
+
+/-- **(lemma)**: the phase-one loop never holds 2M or more sequences. -/
+theorem p1IterCount (T : Nat) (hT : 0 < T) (M minlength maxIter : Nat) (minMax : Bool) (ords : Nat → Orders) :
+    ∀ fuel (st st' : P1), st.work.length + st.done.length < 2 * M →
+      p1Iter T hT M minlength maxIter minMax ords fuel st = some st' → st'.work.length + st'.done.length < 2 * M
+  | 0, st, st', h, e => by simp only [p1Iter, Option.some.injEq] at e; rw [← e]; exact h
+  | f + 1, st, st', h, e => by
+    simp only [p1Iter] at e
+    split at e
+    · next hc =>
+      split at e
+      · simp only [Option.some.injEq] at e; rw [← e]; exact h
+      · split at e
+        · cases e
+        · next st1 h1 =>
+          have := p1BodyCount T hT M minlength minMax _ st st1 h1
+          exact p1IterCount T hT M minlength maxIter minMax ords f st1 st' (by omega) e
+    · simp only [Option.some.injEq] at e; rw [← e]; exact h
+
+/-- **K-09** (T-13, T-21): the buffers the host allocates suffice, within the §7.1 bound. For
+maxseq M ≥ 1, `bookkeeping(maxseq:)` allocates 40 M + 3·32 M = 136 M ≤ 136 M + 2^16 bytes, and the
+auxiliary buffer is reported as exactly 4n bytes. Each phase-one iteration writes fewer than M
+records (40 bytes each) and fewer than 2M block descriptors (16 bytes each), and phase two receives
+fewer than 2M sequences, so the records, blocks, sequences and statistics buffers are never
+overrun. -/
+theorem bookkeepingFits (T : Nat) (hT : 0 < T) (M n minlength maxIter : Nat) (hM : 0 < M) (minMax : Bool)
+    (ords : Nat → Orders) :
+    bookkeepingBytes M = 136 * M ∧ bookkeepingBytes M ≤ 136 * M + 2 ^ 16 ∧ auxBytes n = 4 * n ∧
+    (∀ st : P1, st.work ≠ [] → st.work.length + st.done.length < M → (∀ w ∈ st.work, w.1.begin ≤ w.1.end_) →
+      (mkRecs st.work).length < M ∧
+      (mkBlocks (max T (((st.work.map fun w => w.1.end_ - w.1.begin).sum + M - 1) / M))
+        (Nat.lt_of_lt_of_le hT (Nat.le_max_left _ _)) st.work).length < 2 * M) ∧
+    (∀ fuel (st st' : P1), st.work.length + st.done.length < 2 * M →
+      p1Iter T hT M minlength maxIter minMax ords fuel st = some st' → (st'.done ++ st'.work.map (·.1)).length < 2 * M) := by
+  refine ⟨by simp [bookkeepingBytes]; omega, by simp [bookkeepingBytes]; omega, rfl, fun st hne hlt hwf => ?_,
+    fun fuel st st' h e => ?_⟩
+  · refine ⟨by rw [mkRecsLen]; omega, ?_⟩
+    rcases mkBlocksBound T M hM st.work hwf _ with h | h
+    · omega
+    · exact absurd h hne
+  · have := p1IterCount T hT M minlength maxIter minMax ords fuel st st' h e
+    simp only [List.length_append, List.length_map]; omega
 
 end GpuQuicksort.Theorems
