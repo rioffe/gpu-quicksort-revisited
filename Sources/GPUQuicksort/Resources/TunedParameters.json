@@ -1,7 +1,31 @@
 {
   "entries" : {
+    "Apple M5 Max" : {
+      "fitted" : "2026-09-25",
+      "gpuqsortVersion" : "0.4.0",
+      "maxseq" : {
+        "k" : 0.0002872599891169155,
+        "m" : 1
+      },
+      "minseq" : {
+        "k" : 0,
+        "m" : 2986.6666666666665
+      },
+      "sizes" : [
+        524288,
+        1048576,
+        2097152,
+        4194304,
+        8388608,
+        16777216
+      ],
+      "threads" : {
+        "k" : 0,
+        "m" : 490.66666666666669
+      }
+    },
     "apple-default" : {
-      "sameAs" : "paper-8800gtx"
+      "sameAs" : "Apple M5 Max"
     },
     "paper-8800gtx" : {
       "fitted" : "2009-07-01",

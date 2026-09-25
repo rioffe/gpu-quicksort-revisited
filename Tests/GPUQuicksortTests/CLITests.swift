@@ -3,7 +3,8 @@ import Testing
 @testable import GPUQuicksort
 
 /// §9.4 CLI tests: run the debug `gpuqsort` binary (the test build is debug, D-21).
-@Suite("CLI", .serialized) struct CLITests {
+@Suite("CLI", .serialized, .requiresGPU)
+struct CLITests {
     /// The debug `gpuqsort` built alongside this test bundle: walk up from the bundle until a
     /// directory holds an executable `gpuqsort` (layouts differ between SwiftPM build systems).
     static let exe: String = {
@@ -28,7 +29,7 @@ import Testing
     /// with the E-15 message; `--threads 48` exits 2; missing `--dist` exits 2; `gen --n` above
     /// 2^31 - 1 exits 2; `--table` pointing at an invalid table exits 3; `sort --out` into a
     /// read-only directory exits 4. Each case matches its §7.2 row. Proves R-19, K-12, E-15.
-    @Test(.enabled(if: TS.hasGPU)) func basicCommandsAndExitCodes() throws {
+    @Test func basicCommandsAndExitCodes() throws {
         let dir = TS.tempDir()
         let inURL = dir.appendingPathComponent("in.bin"), outURL = dir.appendingPathComponent("out.bin")
         var r = Self.cli(["gen", "--dist", "staggered", "--n", "100000", "--key", "float32", "--out", inURL.path])
@@ -67,7 +68,7 @@ import Testing
     /// verified=true on every row, provenance columns equal to `info --json`'s version and
     /// metallibSHA256 and the tuning entry in effect, and nothing on stderr without --verbose.
     /// Proves R-23, R-22, R-26.
-    @Test(.enabled(if: TS.hasGPU)) func benchCSV() throws {
+    @Test func benchCSV() throws {
         let info = try JSONDecoder().decode(InfoJSON.self, from: Self.cli(["info", "--json"]).stdoutData)
         let r = Self.cli(["bench", "--n", "1M", "--runs", "3", "--dist", "uniform", "--cpu", "--allow-debug"])
         #expect(r.status == 0 && r.stderr.isEmpty, "\(r.stderr)")
@@ -90,7 +91,7 @@ import Testing
     /// T-29 (CLI half): `--verbose` writes the §5.3 phase1 lines and one sort line per sort to
     /// stderr, and no line contains a key value (the `zero` distribution's constant c).
     /// Proves R-22.
-    @Test(.enabled(if: TS.hasGPU)) func verboseDiagnostics() throws {
+    @Test func verboseDiagnostics() throws {
         let dir = TS.tempDir()
         let inURL = dir.appendingPathComponent("z.bin")
         #expect(Self.cli(["gen", "--dist", "zero", "--n", "1048576", "--out", inURL.path]).status == 0)
@@ -108,9 +109,11 @@ import Testing
     /// T-30: `info --json` decodes as the §5.2 object — limits.maxKeys follows K-01, tuning equals
     /// GPUQuicksort.tuning, metallibSHA256 equals the stamp file, defaults equal
     /// resolvedParameters for both sizes; the human output contains the same values.
-    /// Proves C-03, C-10, K-01.
-    @Test(.enabled(if: TS.hasGPU)) func infoJSON() throws {
+    /// The suite runs only on a device meeting K-02 (Apple7 family, checked here).
+    /// Proves C-03, C-10, K-01, K-02.
+    @Test func infoJSON() throws {
         let q = try #require(Self.q)
+        #expect(q.device.supportsFamily(.apple7))                                  // K-02
         let r = Self.cli(["info", "--json"])
         #expect(r.status == 0)
         let info = try JSONDecoder().decode(InfoJSON.self, from: r.stdoutData)
@@ -134,7 +137,7 @@ import Testing
     /// (e) an injected verification failure exits 1 and leaves the table unchanged; (f) an
     /// unwritable path exits 4; (g) without --allow-debug it exits 2.
     /// Proves R-24, C-10, E-22, E-23, E-25.
-    @Test(.enabled(if: TS.hasGPU)) func tune() throws {
+    @Test func tune() throws {
         let q = try #require(Self.q)
         let dir = TS.tempDir()
         let base = ["tune", "--n", "64K,128K", "--runs", "1", "--grid", "small", "--allow-debug"]
@@ -199,7 +202,7 @@ import Testing
 
     /// T-42 (CLI half): with GPUQS_TEST_FAIL_CB=2 the debug CLI exits 5 with
     /// `gpuqsort: error: gpuExecutionFailed …`. Proves E-09, K-12.
-    @Test(.enabled(if: TS.hasGPU)) func commandBufferFailureExit() throws {
+    @Test func commandBufferFailureExit() throws {
         let dir = TS.tempDir()
         let inURL = dir.appendingPathComponent("in.bin")
         #expect(Self.cli(["gen", "--dist", "uniform", "--n", "1M", "--key", "int32", "--out", inURL.path]).status == 0)
@@ -210,7 +213,7 @@ import Testing
 
     /// `verify --dist all` covers the six [P §5.3] distributions (fullrange is test-only, C-08): one
     /// PASS line per (dist, n, key) and exit 0 (R-19).
-    @Test(.enabled(if: TS.hasGPU)) func verifySmall() {
+    @Test func verifySmall() {
         let r = Self.cli(["verify", "--dist", "all", "--n", "1K,70000", "--key", "all"])
         #expect(r.status == 0, "\(r.stderr)")
         let lines = r.stdout.split(separator: "\n")

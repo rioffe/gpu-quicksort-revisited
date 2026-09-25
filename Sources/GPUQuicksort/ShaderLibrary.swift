@@ -23,7 +23,12 @@ struct ShaderLibrary {
     /// E-18: a missing resource throws `shaderLibraryMissing`; a load failure throws
     /// `shaderLibraryLoadFailed`.
     static func load(device: MTLDevice) throws -> ShaderLibrary {
-        guard let url = resourceURL(variant, "metallib") else {
+        try load(device: device, url: resourceURL(variant, "metallib"))
+    }
+
+    /// Loads a specific library file; `nil` means the resource is missing (E-18).
+    static func load(device: MTLDevice, url: URL?) throws -> ShaderLibrary {
+        guard let url else {
             throw GPUQuicksortError.shaderLibraryMissing("Resources/\(variant).metallib")
         }
         let lib: MTLLibrary

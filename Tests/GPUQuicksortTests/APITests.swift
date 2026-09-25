@@ -3,13 +3,14 @@ import Metal
 import Testing
 @testable import GPUQuicksort
 
-@Suite("API", .serialized) struct APITests {
+@Suite("API", .serialized, .requiresGPU)
+struct APITests {
     static let q: GPUQuicksort? = try? GPUQuicksort()
 
     static func shared(_ bits: [UInt32], extra: Int = 0) -> MTLBuffer {
         let len = max(4 * bits.count + extra, 4)
         let b = TS.device!.makeBuffer(length: len, options: .storageModeShared)!
-        bits.withUnsafeBytes { memcpy(b.contents(), $0.baseAddress!, $0.count) }
+        bits.withUnsafeBytes { _ = memcpy(b.contents(), $0.baseAddress!, $0.count) }
         return b
     }
     static func contents(_ b: MTLBuffer, _ n: Int) -> [UInt32] {
@@ -19,7 +20,7 @@ import Testing
     /// T-06 (report half; the "no command buffer" half via hook counters is in StructureTests):
     /// n = 0 and n = 1 return a report with zero counters and both byte counts 0, and leave the
     /// buffer byte-identical. Proves E-01, E-02.
-    @Test(.enabled(if: TS.hasGPU)) func tinyInputs() throws {
+    @Test func tinyInputs() throws {
         let q = try #require(Self.q)
         let buf = Self.shared([0xDEAD_BEEF, 7])
         for n in [0, 1] {
@@ -36,8 +37,9 @@ import Testing
 
     /// T-18: explicit T = 48, T = 2048, minseq = 100, minseq above the K-03 bound, maxseq = 0 and
     /// maxPhaseOneIterations = 0 each throw `invalidParameters` naming the parameter, and the
-    /// buffer is byte-identical afterwards. Proves K-04, K-03, E-05, I-006.
-    @Test(.enabled(if: TS.hasGPU)) func invalidParameters() throws {
+    /// buffer is byte-identical afterwards; every failure is a typed C-07 error (R-18).
+    /// Proves K-04, K-03, E-05, I-006, R-18, C-07.
+    @Test func invalidParameters() throws {
         let q = try #require(Self.q)
         let input = Distribution.generate(.uniform, n: 5000, seed: 1, key: .uint32)
         let buf = Self.shared(input)
@@ -62,15 +64,16 @@ import Testing
 
     /// T-19: a `.private` buffer throws `bufferNotShared`; a buffer of 4n - 1 bytes throws
     /// `bufferTooSmall`; count = -1 and count = maxKeys + 1 throw `tooManyKeys`; buffers are
-    /// untouched. Proves E-06, E-07, E-08, K-01, I-006.
-    @Test(.enabled(if: TS.hasGPU)) func invalidBuffers() throws {
+    /// untouched; each failure is the typed C-07 case named by §8 (R-18).
+    /// Proves E-06, E-07, E-08, K-01, I-006, R-18, C-07.
+    @Test func invalidBuffers() throws {
         let q = try #require(Self.q)
         let dev = try #require(TS.device)
         let priv = try #require(dev.makeBuffer(length: 4096, options: .storageModePrivate))
         #expect(throws: GPUQuicksortError.bufferNotShared) { try q.sort(priv, count: 1024, keyType: .uint32) }
         let input = Distribution.generate(.uniform, n: 999, seed: 2, key: .uint32)
         let small = dev.makeBuffer(length: 4 * 1000 - 1, options: .storageModeShared)!
-        input.withUnsafeBytes { memcpy(small.contents(), $0.baseAddress!, $0.count) }
+        input.withUnsafeBytes { _ = memcpy(small.contents(), $0.baseAddress!, $0.count) }
         #expect(throws: GPUQuicksortError.bufferTooSmall(required: 4000, actual: 3999)) {
             try q.sort(small, count: 1000, keyType: .uint32)
         }
@@ -88,7 +91,7 @@ import Testing
     /// T-20 (API half): `resolvedParameters(for:)` with `.constants(.paper8800GTX)` returns
     /// (64, 512, 256) for n = 2^20 and (256, 1024, 1024) for n = 2^24 on this device; with
     /// `.bundled` it equals optp computed from `GPUQuicksort.tuning`. Proves K-05, R-16, C-10.
-    @Test(.enabled(if: TS.hasGPU)) func resolvedParametersAPI() throws {
+    @Test func resolvedParametersAPI() throws {
         let paper = try GPUQuicksort(tuning: .constants(.paper8800GTX))
         func t(_ r: ResolvedParameters) -> [Int] { [r.threadsPerThreadgroup, r.maxSequences, r.minSequenceLength] }
         #expect(t(try paper.resolvedParameters(for: 1 << 20, .automatic)) == [64, 512, 256])
@@ -105,7 +108,7 @@ import Testing
     /// `tunedParametersInvalid`, as does `.constants` with m = 0; a table lacking the host's name
     /// resolves to `apple-default`'s target with `exactMatch == false`; the bundled table
     /// validates. Proves C-10, E-20, E-21, C-01.
-    @Test(.enabled(if: TS.hasGPU)) func tuningSources() throws {
+    @Test func tuningSources() throws {
         _ = try GPUQuicksort(tuning: .bundled)
         let dir = TS.tempDir()
         let badURL = dir.appendingPathComponent("bad.json")
@@ -129,7 +132,7 @@ import Testing
     /// the §7.1 bound 136 M + 2^16 for the resolved M (and for M = 1 and M = 2^16), count = n,
     /// 0 < gpuTime <= wallTime, parameters equal to resolvedParameters, and provenance fields
     /// equal to the instance's; for n = 1 both byte counts are 0. Proves R-21, C-02, K-09, K-11.
-    @Test(.enabled(if: TS.hasGPU)) func reportFields() throws {
+    @Test func reportFields() throws {
         let q = try #require(Self.q)
         let n = 1 << 20
         let input = Distribution.generate(.uniform, n: n, seed: 21, key: .uint32)
@@ -150,7 +153,7 @@ import Testing
 
     /// T-22: eight concurrent tasks sort distinct arrays on one instance; all are correct
     /// (calls are serialized, D-09). Proves E-16, C-01.
-    @Test(.enabled(if: TS.hasGPU)) func concurrentSorts() async throws {
+    @Test func concurrentSorts() async throws {
         let q = try #require(Self.q)
         try await withThrowingTaskGroup(of: Bool.self) { group in
             for i in 0..<8 {
@@ -166,9 +169,11 @@ import Testing
     }
 
     /// T-23: `sort(&[Float])` and `sort(&[Int32])` on `fullrange` n = 10^5 give the same result as
-    /// the buffer API. Proves C-01, R-17.
-    @Test(.enabled(if: TS.hasGPU)) func arrayAPI() throws {
+    /// the buffer API. The generic API accepts exactly the three closed conformances, each mapped
+    /// to its KeyType (E-11). Proves C-01, R-17, E-11.
+    @Test func arrayAPI() throws {
         let q = try #require(Self.q)
+        #expect(UInt32.keyType == .uint32 && Int32.keyType == .int32 && Float.keyType == .float32)   // E-11
         let n = 100_000
         let fbits = Distribution.generate(.fullrange, n: n, seed: 23, key: .float32)
         var floats = fbits.map { Float(bitPattern: $0) }
@@ -184,7 +189,7 @@ import Testing
 
     /// T-24: an injected allocation failure throws `allocationFailed` and leaves the buffer
     /// unchanged. Proves E-12, I-006.
-    @Test(.enabled(if: TS.hasGPU)) func allocationFailure() throws {
+    @Test func allocationFailure() throws {
         let q = try #require(Self.q)
         let input = Distribution.generate(.uniform, n: 100_000, seed: 25, key: .int32)
         let buf = Self.shared(input)
@@ -199,7 +204,7 @@ import Testing
     /// T-29 (library half): a `diagnostics` handler receives, per sort, `phaseOneIterations`
     /// lines in the §5.3 `phase1` format with i = 1, 2, ..., then exactly one `sort` line whose
     /// fields equal the returned report; no line contains a key value. Proves R-22, C-01.
-    @Test(.enabled(if: TS.hasGPU)) func diagnosticLines() throws {
+    @Test func diagnosticLines() throws {
         let q = try #require(Self.q)
         final class Box: @unchecked Sendable { var lines: [String] = []; let l = NSLock() }
         let box = Box()
@@ -226,7 +231,7 @@ import Testing
     /// T-42 (library half): a hook reports the k-th committed command buffer as failed for
     /// k in {1, 2, last}: `sort` throws `gpuExecutionFailed` with the error's description and the
     /// next sort on the same instance succeeds. Proves E-09.
-    @Test(.enabled(if: TS.hasGPU)) func commandBufferFailure() throws {
+    @Test func commandBufferFailure() throws {
         let q = try #require(Self.q)
         let input = Distribution.generate(.uniform, n: 1 << 20, seed: 42, key: .float32)
         _ = try gpuSort(q, input, .float32)

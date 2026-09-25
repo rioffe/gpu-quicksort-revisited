@@ -3,14 +3,8 @@ import Metal
 import Testing
 @testable import GPUQuicksort
 
-/// Sorts `bits` (key bit patterns) on the GPU through the buffer API; returns output bit patterns.
-func gpuSort(_ q: GPUQuicksort, _ bits: [UInt32], _ key: KeyType, _ p: Parameters = .automatic) throws -> ([UInt32], SortReport) {
-    let buf = APITests.shared(bits)
-    let r = try q.sort(buf, count: bits.count, keyType: key, parameters: p)
-    return (APITests.contents(buf, bits.count), r)
-}
-
-@Suite("Correctness", .serialized) struct CorrectnessTests {
+@Suite("Correctness", .serialized, .requiresGPU)
+struct CorrectnessTests {
     static let q: GPUQuicksort? = try? GPUQuicksort()
     static let sizes = [2, 3, 31, 32, 33, 63, 64, 65, 255, 256, 257, 1023, 1024, 1025, 4097,
                         65535, 65536, 65537, 1_000_000, (1 << 22) + 1]
@@ -19,8 +13,9 @@ func gpuSort(_ q: GPUQuicksort, _ bits: [UInt32], _ key: KeyType, _ p: Parameter
     /// T-01: for every C-08 distribution including `fullrange`, every key type and every listed
     /// n, seed 42, the output bytes equal CPUReference byte for byte, with default parameters
     /// (both phases) and, as a supplement, with maxseq = 1 (phase two alone, R-03).
-    /// Proves R-01, R-02, R-03, R-12, I-001, I-002, I-003.
-    @Test(.enabled(if: TS.hasGPU)) func matrix() throws {
+    /// Phase-two pivots are the median of s_b, s_mid, s_{e-1} (R-14) on every one of these inputs.
+    /// Proves R-01, R-02, R-03, R-12, R-14, I-001, I-002, I-003.
+    @Test func matrix() throws {
         let q = try #require(Self.q)
         for d in Distribution.allCases {
             for key in KeyType.allCases {
@@ -38,7 +33,7 @@ func gpuSort(_ q: GPUQuicksort, _ bits: [UInt32], _ key: KeyType, _ p: Parameter
 
     /// T-02: T-01 at n = 2^24 on `uniform`, `sorted` and `zero`, uint32, default parameters.
     /// Proves R-08, R-12.
-    @Test(.enabled(if: TS.hasGPU)) func large() throws {
+    @Test func large() throws {
         let q = try #require(Self.q)
         for d in [Distribution.uniform, .sorted, .zero] {
             let input = Distribution.generate(d, n: 1 << 24, seed: 42, key: .uint32)
@@ -51,7 +46,7 @@ func gpuSort(_ q: GPUQuicksort, _ bits: [UInt32], _ key: KeyType, _ p: Parameter
     /// T-03: parameter grid — every valid T in {32..1024}, maxseq in {1, 7, 64, 1024}, minseq in
     /// {64, 256, 1024, max valid}, both pivot strategies, on `uniform` and `staggered` with
     /// n = 300,001: every output equals CPUReference. Proves R-16, O-2, R-11, I-003, K-04.
-    @Test(.enabled(if: TS.hasGPU)) func parameterGrid() throws {
+    @Test func parameterGrid() throws {
         let q = try #require(Self.q)
         let n = 300_001
         for d in [Distribution.uniform, .staggered] {
@@ -74,7 +69,7 @@ func gpuSort(_ q: GPUQuicksort, _ bits: [UInt32], _ key: KeyType, _ p: Parameter
     /// T-08: `zero` with n = 2^20 and defaults: exactly one phase-one iteration, no sequences
     /// handed to phase two, no lqsort dispatch, 0 partitions and 0 alternative sorts, correct
     /// output. Proves K-10, E-04, E-24, R-06.
-    @Test(.enabled(if: TS.hasGPU)) func zeroIsLinear() throws {
+    @Test func zeroIsLinear() throws {
         let q = try #require(Self.q)
         let input = Distribution.generate(.zero, n: 1 << 20, seed: 42, key: .uint32)
         let (out, r) = try gpuSort(q, input, .uint32)
@@ -87,7 +82,7 @@ func gpuSort(_ q: GPUQuicksort, _ bits: [UInt32], _ key: KeyType, _ p: Parameter
     /// T-10: iteration cap — `uniform`, n = 2^20, maxseq = 1024, maxPhaseOneIterations = 1:
     /// one iteration, cap reached, phaseOneSequences = 2 minus empty children, correct output;
     /// with the default cap of 64 on the same input the cap is not reached. Proves K-07, R-08.
-    @Test(.enabled(if: TS.hasGPU)) func iterationCap() throws {
+    @Test func iterationCap() throws {
         let q = try #require(Self.q)
         let input = Distribution.generate(.uniform, n: 1 << 20, seed: 42, key: .uint32)
         let ref = CPUReference.sortedReference(input, .uint32)
@@ -101,7 +96,7 @@ func gpuSort(_ q: GPUQuicksort, _ bits: [UInt32], _ key: KeyType, _ p: Parameter
     /// T-11: for `uniform` n = 2^22 with minseq = 64, and for `sorted`, maxStackDepth (counted per
     /// C-02) <= ceil(log2(l_max / 64)) + 2, where l_max is the longest phase-two input sequence
     /// (recorded by the phase-two hook). Proves R-13, K-08.
-    @Test(.enabled(if: TS.hasGPU)) func stackDepthBound() throws {
+    @Test func stackDepthBound() throws {
         let q = try #require(Self.q)
         for d in [Distribution.uniform, .sorted] {
             let input = Distribution.generate(d, n: 1 << 22, seed: 42, key: .uint32)
@@ -119,7 +114,7 @@ func gpuSort(_ q: GPUQuicksort, _ bits: [UInt32], _ key: KeyType, _ p: Parameter
     /// `sorted` and `uniform` at n = 2^20: outputs equal CPUReference; every phase-one child is
     /// strictly shorter than its parent and its pivot equals lo + (hi - lo)/2 computed on the CPU
     /// from its actual contents; `uniform` does not reach the cap. Proves O-2, I-005.
-    @Test(.enabled(if: TS.hasGPU)) func minMaxAveragePivot() throws {
+    @Test func minMaxAveragePivot() throws {
         let q = try #require(Self.q)
         let cases: [(Distribution, KeyType)] = [(.fullrange, .int32), (.fullrange, .float32), (.zero, .uint32),
                                                 (.sorted, .uint32), (.uniform, .uint32)]
@@ -146,7 +141,7 @@ func gpuSort(_ q: GPUQuicksort, _ bits: [UInt32], _ key: KeyType, _ p: Parameter
 
     /// T-04: the same input sorted 20 times with defaults gives identical output each time.
     /// Proves I-003.
-    @Test(.enabled(if: TS.hasGPU)) func deterministicOutput() throws {
+    @Test func deterministicOutput() throws {
         let q = try #require(Self.q)
         let input = Distribution.generate(.uniform, n: 1 << 20, seed: 9, key: .uint32)
         let first = try gpuSort(q, input, .uint32).0
@@ -157,7 +152,7 @@ func gpuSort(_ q: GPUQuicksort, _ bits: [UInt32], _ key: KeyType, _ p: Parameter
     /// T-05 (GPU half): `key_encode` then `key_decode` on the GPU over 2^24 patterns including all
     /// special classes returns the input, and `key_encode` equals the C-04 CPU formula.
     /// Proves C-04, R-17, E-14.
-    @Test(.enabled(if: TS.hasGPU)) func gpuCodecRoundTrip() throws {
+    @Test func gpuCodecRoundTrip() throws {
         let q = try #require(Self.q)
         var patterns = [UInt32](repeating: 0, count: 1 << 24)
         for i in patterns.indices { patterns[i] = UInt32(truncatingIfNeeded: i &* 256 &+ (i & 0xFF)) }
@@ -175,7 +170,7 @@ func gpuSort(_ q: GPUQuicksort, _ bits: [UInt32], _ key: KeyType, _ p: Parameter
 
     /// T-07: n = minseq - 1 skips phase one and is sorted by exactly one alternative sort.
     /// Proves E-03, R-15.
-    @Test(.enabled(if: TS.hasGPU)) func belowMinseq() throws {
+    @Test func belowMinseq() throws {
         let q = try #require(Self.q)
         for minseq in [64, 256, 1024] {
             let n = minseq - 1
@@ -188,7 +183,7 @@ func gpuSort(_ q: GPUQuicksort, _ bits: [UInt32], _ key: KeyType, _ p: Parameter
 
     /// T-09: many duplicates (keys k mod 3, and half the keys equal) sort correctly and the run
     /// terminates, in phase-two-only and default configurations. Proves E-04, I-004, I-005.
-    @Test(.enabled(if: TS.hasGPU)) func duplicates() throws {
+    @Test func duplicates() throws {
         let q = try #require(Self.q)
         let n = 1_000_000
         let mod3 = (0..<n).map { UInt32($0 % 3) }
@@ -220,7 +215,7 @@ func gpuSort(_ q: GPUQuicksort, _ bits: [UInt32], _ key: KeyType, _ p: Parameter
     /// minseq = 64, n = 2^14: organ pipe, sawtooth (k mod 257), the median-of-3 killer for this
     /// pivot rule, and reverse-sorted input. Each output equals CPUReference and
     /// maxStackDepth <= 27. Proves E-13, K-08, R-13.
-    @Test(.enabled(if: TS.hasGPU)) func phaseTwoAdversarial() throws {
+    @Test func phaseTwoAdversarial() throws {
         let q = try #require(Self.q)
         let n = 1 << 14
         let organ = (0..<n).map { UInt32($0 < n / 2 ? $0 : n - 1 - $0) }

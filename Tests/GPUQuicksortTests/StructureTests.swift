@@ -4,13 +4,14 @@ import Testing
 @testable import GPUQuicksort
 
 /// §9.2: structural claims checked through the D-21 test hooks (debug builds).
-@Suite("Structure", .serialized) struct StructureTests {
+@Suite("Structure", .serialized, .requiresGPU)
+struct StructureTests {
     static let q: GPUQuicksort? = try? GPUQuicksort()
 
     /// T-12: forcing the stack capacity to 2 makes the sort throw `internalInvariantViolated`
     /// and the next sort on the same instance succeeds; corrupting a SequenceRecord cursor after a
     /// phase-one dispatch makes the read-back check throw `internalInvariantViolated`. Proves E-10.
-    @Test(.enabled(if: TS.hasGPU)) func invariantViolations() throws {
+    @Test func invariantViolations() throws {
         let q = try #require(Self.q)
         let input = Distribution.generate(.uniform, n: 1 << 16, seed: 4, key: .uint32)
         q.sorter.stackCapacity = 2
@@ -34,7 +35,7 @@ import Testing
     /// Σ ceil(l / blocksize) threadgroups with blocksize from K-06, every child lives in buffer
     /// 1 - src, and each iteration's children are pairwise disjoint, disjoint from the gaps, and
     /// strictly shorter than their parent. Proves R-07, R-08, K-06, I-005, E-17.
-    @Test(.enabled(if: TS.hasGPU)) func iterationStructure() throws {
+    @Test func iterationStructure() throws {
         let q = try #require(Self.q)
         let n = 1 << 22
         let input = Distribution.generate(.uniform, n: n, seed: 42, key: .uint32)
@@ -65,7 +66,7 @@ import Testing
     /// T-14: `gqsort_partition` performs exactly 2 device-atomic read-modify-writes per
     /// threadgroup under `medianOfThree` and exactly 6 under `minMaxAverage` (debug counter
     /// buffer). Proves R-09, O-2.
-    @Test(.enabled(if: TS.hasGPU)) func atomicsPerThreadgroup() throws {
+    @Test func atomicsPerThreadgroup() throws {
         let q = try #require(Self.q)
         let input = Distribution.generate(.uniform, n: 1 << 21, seed: 8, key: .uint32)
         for (pivot, perGroup) in [(PhaseOnePivot.medianOfThree, 2), (.minMaxAverage, 6)] {
@@ -86,7 +87,7 @@ import Testing
     /// the number of pivot-equal elements in the parent's input (snapshotted from the previous
     /// iteration's children, or the input for the root) equals the gap length.
     /// Proves R-06, R-10, I-004.
-    @Test(.enabled(if: TS.hasGPU)) func gapsHoldPivots() throws {
+    @Test func gapsHoldPivots() throws {
         let q = try #require(Self.q)
         let n = 1 << 20
         var input = Distribution.generate(.uniform, n: n, seed: 11, key: .uint32)
@@ -118,7 +119,7 @@ import Testing
     /// T-16: with per-index finalization counters, every index of D is finalized exactly once
     /// (gap fills of both phases plus alternative-sort write-backs), for `uniform`, `zero`
     /// (E-24 path) and a heavy-duplicate input. Proves I-008, R-15, R-06.
-    @Test(.enabled(if: TS.hasGPU)) func finalizedExactlyOnce() throws {
+    @Test func finalizedExactlyOnce() throws {
         let q = try #require(Self.q)
         let n = 1 << 20
         let dups = (0..<n).map { UInt32($0 % 17) }
@@ -136,7 +137,7 @@ import Testing
     }
 
     /// T-06 (hook half): n = 0 and n = 1 commit no command buffer. Proves E-01, E-02.
-    @Test(.enabled(if: TS.hasGPU)) func tinyInputsCommitNothing() throws {
+    @Test func tinyInputsCommitNothing() throws {
         let q = try #require(Self.q)
         _ = try gpuSort(q, Distribution.generate(.uniform, n: 5000, seed: 1, key: .uint32), .uint32)
         #expect(q.sorter.runner.commits > 0)

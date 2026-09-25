@@ -49,9 +49,7 @@ struct Tune: ParsableCommand {
         let ms = small ? [64, 512] : [32, 64, 128, 256, 512, 1024, 2048, 4096]
         let ss = small ? [64, 256] : [64, 128, 256, 512, 1024, 2048, 4096]
         #if GPUQS_TEST_HOOKS
-        let corrupt = ProcessInfo.processInfo.environment["GPUQS_TEST_CORRUPT_VERIFY"] != nil
-        #else
-        let corrupt = false
+        let corrupt = ProcessInfo.processInfo.environment["GPUQS_TEST_CORRUPT_VERIFY"] != nil   // T-38 (e)
         #endif
 
         var best: [[String: Any]] = [], gridOut: [[String: Any]] = []
@@ -71,7 +69,9 @@ struct Tune: ParsableCommand {
                 for run in 0...runs {
                     input.withUnsafeBytes { if $0.count > 0 { memcpy(buf.contents(), $0.baseAddress!, $0.count) } }
                     let r = try q.sort(buf, count: count, keyType: k, parameters: p)
+                    #if GPUQS_TEST_HOOKS
                     if corrupt { buf.contents().storeBytes(of: ~buf.contents().load(as: UInt32.self), as: UInt32.self) }
+                    #endif
                     guard Data(bytes: buf.contents(), count: 4 * count) == ref else {
                         throw CLIExit(code: 1, message: "verification failed: n=\(count) T=\(t) maxseq=\(m) minseq=\(s) run=\(run)")  // E-22
                     }

@@ -32,12 +32,14 @@ enum TS {
         p.standardError = err
         do { try p.run() } catch { return ProcessResult(status: -1, stdout: "", stderr: "\(error)", stdoutData: Data()) }
         // Drain both pipes concurrently to avoid deadlock on large outputs.
-        var outData = Data(), errData = Data()
+        final class Box: @unchecked Sendable { var data = Data() }
+        let o = Box(), e2 = Box()
         let g = DispatchGroup()
-        g.enter(); DispatchQueue.global().async { outData = out.fileHandleForReading.readDataToEndOfFile(); g.leave() }
-        g.enter(); DispatchQueue.global().async { errData = err.fileHandleForReading.readDataToEndOfFile(); g.leave() }
+        g.enter(); DispatchQueue.global().async { o.data = out.fileHandleForReading.readDataToEndOfFile(); g.leave() }
+        g.enter(); DispatchQueue.global().async { e2.data = err.fileHandleForReading.readDataToEndOfFile(); g.leave() }
         p.waitUntilExit()
         g.wait()
+        let outData = o.data, errData = e2.data
         return ProcessResult(status: p.terminationStatus,
                              stdout: String(decoding: outData, as: UTF8.self),
                              stderr: String(decoding: errData, as: UTF8.self),
@@ -60,4 +62,22 @@ enum TS {
         try! data.write(to: u)
         return u
     }
+}
+
+/// Sorts `bits` (key bit patterns) on the GPU through the buffer API; returns output bit patterns.
+func gpuSort(_ q: GPUQuicksort, _ bits: [UInt32], _ key: KeyType, _ p: Parameters = .automatic) throws -> ([UInt32], SortReport) {
+    let buf = APITests.shared(bits)
+    let r = try q.sort(buf, count: bits.count, keyType: key, parameters: p)
+    return (APITests.contents(buf, bits.count), r)
+}
+
+/// Named suite conditions. The attribute argument stays a flat list, which keeps each test's
+/// span readable for speccheck's Swift adapter.
+extension Trait where Self == ConditionTrait {
+    /// Suites that need a Metal device.
+    static var requiresGPU: Self { .enabled(if: TS.hasGPU, "no Metal device") }
+    /// T-36 needs the Metal toolchain (C-09).
+    static var requiresMetalToolchain: Self { .enabled(if: TS.metalAvailable, "xcrun metal is unavailable") }
+    /// T-34: verification pending until the tuning run exists (R-25, §9 intro).
+    static var requiresTuningRecord: Self { .disabled(if: !RecordedTests.hasM5Entry, "tuning not yet recorded (R-25, T-34)") }
 }
