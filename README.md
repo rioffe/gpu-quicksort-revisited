@@ -153,3 +153,7 @@ The full `SPEC.md` v0.4 is implemented. The spec's non-goals are:
 - a guard against Quicksort's worst case;
 - non-Apple GPUs;
 - the paper's competitor algorithms.
+
+## License
+
+Released under the [MIT License](LICENSE).
