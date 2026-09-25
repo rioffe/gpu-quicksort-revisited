@@ -55,7 +55,7 @@ try sorter.sort(buffer, count: n, keyType: .uint32,
 | `sort(_:count:keyType:parameters:)` | The buffer must be `.storageModeShared`. Synchronous and not cancellable. Returns a `SortReport`. |
 | `sort(_ keys: inout [K])` | Copies into a staging buffer; the copy time is included in `wallTime`. |
 | `resolvedParameters(for:_:)` | The parameters a sort of `n` keys would use. |
-| `limits`, `tuning`, `metallibSHA256`, `version` | Device limits, tuning constants in effect, shader stamp, library version (`0.4.0`). |
+| `limits`, `tuning`, `metallibSHA256`, `version` | Device limits, tuning constants in effect, shader stamp, library version (`0.5.0`). |
 | `diagnostics` | Handler for the per-iteration and summary lines (also sent to `os.Logger`, subsystem `GPUQuicksort`). |
 
 `SortReport` fields: count, key type, resolved parameters, wall and GPU time, phase-one iterations and sequences, whether the iteration cap was reached, phase-two partitions and alternative sorts, maximum stack depth, auxiliary and bookkeeping bytes, and provenance (library version, metallib hash, tuning entry).

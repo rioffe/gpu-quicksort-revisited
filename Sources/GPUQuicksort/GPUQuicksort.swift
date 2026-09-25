@@ -3,7 +3,7 @@ import Metal
 
 /// C-01: the public entry point. Calls on one instance are serialized (D-09, E-16).
 public final class GPUQuicksort: @unchecked Sendable {
-    public static let version = "0.4.0"
+    public static let version = "0.5.0"
 
     public let device: MTLDevice
     public let limits: DeviceLimits
