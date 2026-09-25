@@ -395,13 +395,11 @@ theorem phaseTwoSorts (S : Nat) (hS : 0 < S) (piv : List Nat → Nat)
   rw [hemp] at this
   simpa [owed, cw, hlen, htk, List.range_eq_range'] using this
 
-/-- **I-008** (T-16): in phase two every position of the sequence is finalized **exactly once**:
+/-- **(lemma)** (I-008, T-16): in phase two every position of the sequence is finalized **exactly once**:
 the positions of the finalized writes are a permutation of [0, n), so none is missed and none is
 written twice. Each write comes from a gap fill (`gapW`) or an alternative-sort write-back
-(`smallW`); the partition's own moves are not finalizing writes. Scope: this is I-008 for one
-phase-two sequence; for one phase-one partition, `ParallelPartition.partitionExactlyOnce` shows the
-cursors and the gap fill cover each index once. That the phase-one gaps and the phase-two sequences
-tile [0, n) is not proven here. -/
+(`smallW`); the partition's own moves are not finalizing writes. This is I-008 for one phase-two
+sequence; `Pipeline.gpuQuicksortExactlyOnce` composes it with phase one. -/
 theorem phaseTwoExactlyOnce (S : Nat) (hS : 0 < S) (piv : List Nat → Nat)
     (hpiv : ∀ ys : List Nat, ys ≠ [] → piv ys ∈ ys) (xs : List Nat) (k : Nat) (hk : xs.length ≤ k) :
     ((run2 S piv k (start2 S xs)).2.map Prod.fst).Perm (List.range xs.length) ∧

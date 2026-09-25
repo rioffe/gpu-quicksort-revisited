@@ -1,7 +1,7 @@
 # Spec model findings — `SPEC.md` v0.5
 
 > - **Source:** `proof_from_spec/` (Lean 4.34.1), the spec's own formal model (spec-model).
-> - **Scope:** 88 spec ids: 49 proven (kernel-checked), 38 deferred to named §9 tests, 1 excluded (O-1, retired).
+> - **Scope:** 88 spec ids: 50 proven (kernel-checked), 37 deferred to named §9 tests, 1 excluded (O-1, retired).
 > - **Numbering:** continues the project's review sequence. F-001..F-030 are in `SPEC_REVIEW_REPORT.md` (rounds 1 and 2); F-031..F-033 are in `SPEC_BUILD_REPORT.md`.
 > - **Rule:** findings are reported, not fixed. `SPEC.md` was not edited to make any proof close.
 
@@ -14,7 +14,7 @@
 | G-3a · requirement with neither proof nor test | 0 | — |
 
 - **No silent case.** The §3.1 lifecycle table has at least one applicable row for every non-terminal state under every combination of facts (`noSilence`). The other transcribed tables (the §7.2 exit map, the C-04 codes, the C-08 formulas) are total functions over their whole input space.
-- **No unwitnessed requirement.** Every one of the 38 deferred ids, and every "process side" half of a proven id, names the §9 tests that carry it.
+- **No unwitnessed requirement.** Every one of the 37 deferred ids, and every "process side" half of a proven id, names the §9 tests that carry it.
 
 ## F-034 — the §3.1 transition table's rows overlap, and no precedence is stated
 

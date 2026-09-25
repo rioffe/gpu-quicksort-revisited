@@ -30,8 +30,10 @@ import Std.Tactic.BVDecide
   sums and one fetch-and-add per side per threadgroup is the partition, for every thread split and
   every order of the atomics (`ParallelPartition.lean`: R-04, R-09); the phase-two explicit stack
   machine sorts, finalizes every position exactly once, and never holds more than
-  log₂(ℓ/S) + 1 entries (`PhaseTwo.lean`: R-13, I-008, K-08); the kernel's bitonic network sorts
-  every power-of-two length (`Bitonic.lean`: R-15).
+  log₂(ℓ/S) + 1 entries (`PhaseTwo.lean`: R-13, K-08); the kernel's bitonic network sorts
+  every power-of-two length (`Bitonic.lean`: R-15); and phase one on actual sequences followed by
+  phase two on each composes to the sort, every index of D finalized exactly once
+  (`Pipeline.lean`: R-12, I-008).
 
 **What this does not prove:** anything about the implementation (`Sources/`). This project
 certifies the *spec*. The implementation's evidence is the §9 suite (56 tests, green) and the
@@ -600,7 +602,7 @@ not link to them. "(process side)" marks an id whose model half is tagged in thi
 | R-09 (process side) | the kernel issues the two atomics from one thread and shares them through threadgroup memory | T-14 |
 | R-10 | fill and child derivation after the dispatch completes | T-15 |
 | R-11 | pivots follow the configured strategy | T-03 |
-| R-12 | one phase-two threadgroup per sequence | T-02, T-07 |
+| R-12 (process side) | one phase-two threadgroup dispatched per sequence | T-02, T-07 |
 | R-13 (process side) | the kernel's stack in threadgroup memory and its push order | T-11, T-17 |
 | R-14 (process side) | the kernel samples s_b, s_mid, s_(e−1) | T-01, T-17 |
 | R-15 (process side) | the bitonic network in threadgroup memory | T-07, T-16 |
