@@ -2,7 +2,7 @@
 
 > - **Build:** `gpuqsort` 0.4.0 implementing `SPEC.md` v0.5, release configuration
 > - **Machine:** Apple M5 Max (18 CPU cores), macOS 26.6.2, Metal toolchain 32023.921
-> - **Source data:** `recorded/bench.csv` (1M–16M keys, 750 rows), `recorded/bench-large.csv` (32M–64M keys, 300 rows), `recorded/tune.json`, and `recorded/stdsort-par-unseq.txt`. Every GPU and CPU result was verified against the CPU reference sort.
+> - **Source data:** `recorded/bench.csv` (1M–16M keys, 750 rows), `recorded/bench-large.csv` (32M–64M keys, 300 rows), `recorded/tune.json`, `recorded/stdsort-par-unseq.txt`, and `recorded/bench-keys.csv` (key types). Every GPU and CPU result was verified against the CPU reference sort.
 > - **Method:** `gpuqsort bench --dist all --n 1M,2M,4M,8M,16M` (and `--n 32M,64M`) `--runs 5 --cpu`, `uint32` keys, tuned defaults from the `Apple M5 Max` entry of `TunedParameters.json`. The phase-one pivot is `minMaxAverage`, the v0.5 default. Every value is the median of 5 timed runs; one warm-up run is discarded, and copying the input is not timed.
 > - **CPU baselines:** Swift `Array.sort()`, libc `qsort`, C++ `std::sort`, and parallel C++ `std::sort(std::execution::par, …)`, which is libc++'s parallel algorithms on libdispatch, enabled with `-fexperimental-library`.
 
@@ -72,6 +72,38 @@ GPU-Quicksort sorts **64M 32-bit keys in 43 ms (1.55 Gkeys/s)** and 16M keys in 
 
 Parallel `std::sort` is only 2.7–5.2× faster than sequential `std::sort` on random inputs with 18 cores, and it is *slower* than sequential on sorted and all-equal input (it does not detect presorted runs).
 
+## Key types: `uint32`, `int32`, `float32`
+
+`int32` and `float32` keys are converted to order-preserving `uint32` codes before the sort and converted back afterwards (C-04, R-17). The kernels only ever sort codes. Measured with `gpuqsort bench --dist uniform,gaussian,staggered --n 16M,64M --key uint32,int32,float32 --runs 5` (release build, median of 5 runs, all verified; `recorded/bench-keys.csv`):
+
+| Input | `uint32` | `int32` | `float32` | Phase-one iterations (u / i / f) |
+| --- | ---: | ---: | ---: | ---: |
+| uniform 16M | 13.0 ms | 14.1 ms (+8%) | 15.4 ms (+18%) | 12 / 12 / 14 |
+| uniform 64M | 43.2 ms | 45.6 ms (+6%) | 49.8 ms (+15%) | 13 / 13 / 17 |
+| gaussian 16M | 13.8 ms | 14.4 ms (+5%) | 14.6 ms (+6%) | 13 / 13 / 13 |
+| gaussian 64M | 46.1 ms | 48.0 ms (+4%) | 51.8 ms (+12%) | 15 / 15 / 17 |
+| staggered 16M | 13.3 ms | 14.3 ms (+8%) | 14.8 ms (+11%) | 12 / 12 / 14 |
+| staggered 64M | 44.9 ms | 47.4 ms (+5%) | 49.3 ms (+10%) | 14 / 14 / 16 |
+
+- **`int32` is about 5–8% slower, all of it key conversion.** Its sort does exactly the same work as `uint32`, with the same number of iterations. The extra cost is two passes over the whole array, `key_encode` before and `key_decode` after, each with its own command buffer and CPU–GPU round trip. That is about 1 ms at 16M keys and about 2.5 ms at 64M. The cost is fixed per key and does not depend on the data.
+- **`float32` is about 6–18% slower: the same conversion cost, plus up to 4 extra phase-one iterations** (none on `gaussian` 16M, which is why that case costs only 6%). The extra iterations come from the `minMaxAverage` pivot, which averages the smallest and largest **code**. A float's code is essentially its bit pattern, which grows roughly with the logarithm of the value: every exponent range (a factor of 2 in value) gets the same share of code space. So the midpoint of the codes is not the midpoint of the values. With the benchmark's inputs (values spread over $[0, 2^{31})$), most keys sit in the top few exponent ranges, and the code midpoint splits off too small a slice, so each pass makes less progress.
+
+### Improving `float32` performance
+
+1. **Compute the `minMaxAverage` pivot in value space for `float32`.** This is the fix for the extra iterations.
+   - Decode the sequence's code minimum and maximum back to floats, $\mathit{lo}$ and $\mathit{hi}$, and take $p = \mathit{lo} + (\mathit{hi} - \mathit{lo})/2$ in floating point. Encode $p$ back to a code.
+   - Use the code of $\mathit{lo}$ whenever the result is not strictly below the code of $\mathit{hi}$, which preserves O-2's guarantee that every child is strictly shorter than its parent.
+   - Special values need rules: when $\mathit{lo}$ or $\mathit{hi}$ is $\pm\infty$ or NaN, or $\mathit{hi} - \mathit{lo}$ overflows, fall back to the code midpoint.
+   - The change is host-side in `Sorter.phaseOne` (child pivots) plus the root pivot. The phase-one kernel is unchanged, because it already records each side's minimum and maximum code.
+   - It changes O-2 and T-41, whose pivot formula is currently defined on codes, so it needs a spec change (v0.6) first.
+   - Expected result: `float32` gets the same iteration counts as `uint32`, which recovers most of the 5–10% beyond the conversion cost.
+2. **Fold the key conversion into the sort, to remove the fixed ≈ 5% for both `int32` and `float32`.**
+   - Encode while the first phase-one pass reads the input, and decode where final values are written to $D$ (the gap fills and the phase-two alternative sort's write-back).
+   - This removes two full passes over memory and two command-buffer round trips.
+   - It changes R-17 (conversion as separate passes) and every kernel's write path, so it needs a spec change and a careful re-check of I-008 (each index finalized exactly once).
+   - A cheaper intermediate step is to put the encode pass in the same command buffer as the first phase-one iteration, and the decode pass in the phase-two command buffer. That removes the two round trips but keeps the two memory passes.
+3. **Re-check the tuning per key type.** The tuned constants were fitted on `uint32`. After the value-space pivot they should suit all three key types; confirm with `gpuqsort tune --key float32`.
+
 ## What changed in v0.5, and why
 
 1. **The default phase-one pivot is now `minMaxAverage`**, the average of the sequence's minimum and maximum, which is what the paper used in its experiments [P §5.2].
@@ -108,3 +140,4 @@ Parallel `std::sort` is only 2.7–5.2× faster than sequential `std::sort` on r
 4. **Re-tune after each change.** Run `swift build -c release && .build/release/gpuqsort tune --write --as-default` on an idle GPU and commit `TunedParameters.json`.
 5. **Resolve the open findings.** F-031: measure T-33's scaling from 4M keys, or drop its range. F-032: find a bounded way to produce a real Metal command-buffer error for E-09, never with non-terminating kernels, which can leave the GPU busy until reboot.
 6. **Consider 64-bit indices** if sorts beyond 2.1 billion keys are needed.
+7. **Close the `float32` gap:** compute the min/max pivot in value space for floats, and fold the key conversion into the sort (see *Improving `float32` performance*).
