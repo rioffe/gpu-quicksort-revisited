@@ -15,12 +15,19 @@ package enum CPUBaseline: String, CaseIterable, Sendable {
     case swift = "cpu-swift", qsort = "cpu-qsort", stdsort = "cpu-stdsort"
 
     package static func run(_ algo: CPUBaseline, _ bits: [UInt32], _ key: KeyType) -> [UInt32] {
-        var codes = key == .uint32 ? bits : bits.map { KeyCodec.encode($0, key) }
+        var v = bits
+        runInPlace(algo, &v, key)
+        return v
+    }
+
+    /// The timed region used by `bench`: encode, sort, decode in place (no copy of the input).
+    package static func runInPlace(_ algo: CPUBaseline, _ v: inout [UInt32], _ key: KeyType) {
+        if key != .uint32 { v.withUnsafeMutableBufferPointer { for i in $0.indices { $0[i] = KeyCodec.encode($0[i], key) } } }
         switch algo {
-        case .swift: codes.sort()
-        case .qsort: codes.withUnsafeMutableBufferPointer { cpub_qsort_u32($0.baseAddress, $0.count) }
-        case .stdsort: codes.withUnsafeMutableBufferPointer { cpub_stdsort_u32($0.baseAddress, $0.count) }
+        case .swift: v.sort()                                              // Swift Array.sort() (D-12)
+        case .qsort: v.withUnsafeMutableBufferPointer { cpub_qsort_u32($0.baseAddress, $0.count) }
+        case .stdsort: v.withUnsafeMutableBufferPointer { cpub_stdsort_u32($0.baseAddress, $0.count) }
         }
-        return key == .uint32 ? codes : codes.map { KeyCodec.decode($0, key) }
+        if key != .uint32 { v.withUnsafeMutableBufferPointer { for i in $0.indices { $0[i] = KeyCodec.decode($0[i], key) } } }
     }
 }

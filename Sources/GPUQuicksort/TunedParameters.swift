@@ -67,6 +67,11 @@ package struct TunedTable: Equatable, Sendable {
     package var schema: Int
     package var entries: [String: Item]
 
+    package init(schema: Int = 1, entries: [String: Item] = [:]) {
+        self.schema = schema
+        self.entries = entries
+    }
+
     /// The key `apple-default` points at (after its one `sameAs` hop).
     package var defaultTarget: String {
         if case .sameAs(let t)? = entries["apple-default"] { return t }

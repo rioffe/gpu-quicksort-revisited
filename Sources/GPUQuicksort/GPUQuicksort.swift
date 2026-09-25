@@ -136,3 +136,10 @@ public final class GPUQuicksort: @unchecked Sendable {
 extension Duration {
     var seconds: Double { Double(components.seconds) + Double(components.attoseconds) * 1e-18 }
 }
+
+#if GPUQS_TEST_HOOKS
+extension GPUQuicksort {
+    /// Test hook (debug builds only): report the k-th command buffer of each sort as failed (T-42).
+    package func setTestFailCommandBuffer(_ k: Int?) { lock.withLock { sorter.runner.failCommandBuffer = k } }
+}
+#endif
