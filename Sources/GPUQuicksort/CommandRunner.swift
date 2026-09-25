@@ -8,6 +8,8 @@ final class CommandRunner {
     var gpuTime: Double = 0
     /// Number of command buffers committed during the current sort.
     var commits = 0
+    /// gpuEndTime − gpuStartTime of each completed command buffer of the current sort (K-11).
+    var gpuDurations: [Double] = []
     /// Dispatches per kernel name during the current sort.
     var dispatches: [String: Int] = [:]
     /// Test hook: the k-th committed command buffer (1-based) of a sort is observed as completed
@@ -23,7 +25,7 @@ final class CommandRunner {
 
     init(queue: MTLCommandQueue) { self.queue = queue }
 
-    func reset() { gpuTime = 0; commits = 0; dispatches = [:]; dispatchLog = [] }
+    func reset() { gpuTime = 0; commits = 0; gpuDurations = []; dispatches = [:]; dispatchLog = [] }
 
     /// Encodes with `body`, commits, waits. Throws `gpuExecutionFailed` if the buffer ends in error.
     func run(_ label: String, _ body: (MTLComputeCommandEncoder) throws -> Void) throws {
@@ -36,7 +38,9 @@ final class CommandRunner {
         cb.commit()
         commits += 1
         cb.waitUntilCompleted()
-        gpuTime += max(0, cb.gpuEndTime - cb.gpuStartTime)
+        let duration = max(0, cb.gpuEndTime - cb.gpuStartTime)
+        gpuDurations.append(duration)
+        gpuTime += duration                                                  // K-11
         var status = cb.status
         var error = cb.error
         #if GPUQS_TEST_HOOKS

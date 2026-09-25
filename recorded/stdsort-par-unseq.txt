@@ -1,0 +1,19 @@
+uniform-16M.bin n=16777216 stdsort_ms=253.503 par_ms=95.304 par_unseq_ms=95.115 unseq_vs_par=1.002 same=1
+uniform-32M.bin n=33554432 stdsort_ms=524.945 par_ms=194.445 par_unseq_ms=194.341 unseq_vs_par=1.001 same=1
+uniform-64M.bin n=67108864 stdsort_ms=1066.654 par_ms=388.658 par_unseq_ms=387.654 unseq_vs_par=1.003 same=1
+sorted-16M.bin n=16777216 stdsort_ms=11.212 par_ms=27.289 par_unseq_ms=27.650 unseq_vs_par=0.987 same=1
+sorted-32M.bin n=33554432 stdsort_ms=22.544 par_ms=55.769 par_unseq_ms=55.600 unseq_vs_par=1.003 same=1
+sorted-64M.bin n=67108864 stdsort_ms=44.877 par_ms=107.896 par_unseq_ms=107.265 unseq_vs_par=1.006 same=1
+zero-16M.bin n=16777216 stdsort_ms=14.659 par_ms=24.202 par_unseq_ms=23.742 unseq_vs_par=1.019 same=1
+zero-32M.bin n=33554432 stdsort_ms=29.140 par_ms=48.717 par_unseq_ms=48.783 unseq_vs_par=0.999 same=1
+zero-64M.bin n=67108864 stdsort_ms=57.944 par_ms=93.095 par_unseq_ms=92.319 unseq_vs_par=1.008 same=1
+bucket-16M.bin n=16777216 stdsort_ms=269.405 par_ms=89.236 par_unseq_ms=88.305 unseq_vs_par=1.011 same=1
+bucket-32M.bin n=33554432 stdsort_ms=548.471 par_ms=179.395 par_unseq_ms=180.497 unseq_vs_par=0.994 same=1
+bucket-64M.bin n=67108864 stdsort_ms=1119.467 par_ms=355.745 par_unseq_ms=356.344 unseq_vs_par=0.998 same=1
+gaussian-16M.bin n=16777216 stdsort_ms=260.767 par_ms=96.355 par_unseq_ms=95.810 unseq_vs_par=1.006 same=1
+gaussian-32M.bin n=33554432 stdsort_ms=530.154 par_ms=196.309 par_unseq_ms=195.612 unseq_vs_par=1.004 same=1
+gaussian-64M.bin n=67108864 stdsort_ms=1079.767 par_ms=399.682 par_unseq_ms=395.198 unseq_vs_par=1.011 same=1
+staggered-16M.bin n=16777216 stdsort_ms=287.342 par_ms=60.569 par_unseq_ms=60.390 unseq_vs_par=1.003 same=1
+staggered-32M.bin n=33554432 stdsort_ms=588.009 par_ms=117.841 par_unseq_ms=116.512 unseq_vs_par=1.011 same=1
+staggered-64M.bin n=67108864 stdsort_ms=1197.750 par_ms=224.091 par_unseq_ms=226.303 unseq_vs_par=0.990 same=1
+exit=0

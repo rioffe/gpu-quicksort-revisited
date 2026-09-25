@@ -90,7 +90,8 @@ struct APITests {
 
     /// T-20 (API half): `resolvedParameters(for:)` with `.constants(.paper8800GTX)` returns
     /// (64, 512, 256) for n = 2^20 and (256, 1024, 1024) for n = 2^24 on this device; with
-    /// `.bundled` it equals optp computed from `GPUQuicksort.tuning`. Proves K-05, R-16, C-10.
+    /// `.bundled` it equals optp computed from `GPUQuicksort.tuning`. The default phase-one pivot
+    /// is `minMaxAverage` (R-11, D-10 revised v0.5). Proves K-05, R-16, C-10, R-11.
     @Test func resolvedParametersAPI() throws {
         let paper = try GPUQuicksort(tuning: .constants(.paper8800GTX))
         func t(_ r: ResolvedParameters) -> [Int] { [r.threadsPerThreadgroup, r.maxSequences, r.minSequenceLength] }
@@ -102,6 +103,8 @@ struct APITests {
         #expect(r.threadsPerThreadgroup == min(max(ParameterResolver.optp(s: 1 << 22, k: c.threads.k, m: c.threads.m), 32), 1024))
         #expect(r.maxSequences == ParameterResolver.optp(s: 1 << 22, k: c.maxseq.k, m: c.maxseq.m))
         #expect(throws: GPUQuicksortError.self) { _ = try q.resolvedParameters(for: q.limits.maxKeys + 1, .automatic) }
+        #expect(Parameters.automatic.phaseOnePivot == .minMaxAverage)                          // R-11 default
+        #expect(r.phaseOnePivot == .minMaxAverage)
     }
 
     /// T-37 (init half): `.file` tables that are invalid make `init` throw
@@ -131,13 +134,26 @@ struct APITests {
     /// T-21: the report for `uniform` n = 2^20 has auxiliaryBytes = 4n, bookkeepingBytes within
     /// the §7.1 bound 136 M + 2^16 for the resolved M (and for M = 1 and M = 2^16), count = n,
     /// 0 < gpuTime <= wallTime, parameters equal to resolvedParameters, and provenance fields
-    /// equal to the instance's; for n = 1 both byte counts are 0. Proves R-21, C-02, K-09, K-11.
+    /// equal to the instance's; for n = 1 both byte counts are 0. K-11: `gpuTime` is exactly the
+    /// sum of gpuEndTime − gpuStartTime over the sort's command buffers (one duration per commit),
+    /// and `wallTime` (seconds, ContinuousClock, measured inside `sort` after validation) lies
+    /// between `gpuTime` and a ContinuousClock measurement taken around the whole call.
+    /// Proves R-21, C-02, K-09, K-11.
     @Test func reportFields() throws {
         let q = try #require(Self.q)
         let n = 1 << 20
         let input = Distribution.generate(.uniform, n: n, seed: 21, key: .uint32)
         for p in [Parameters.automatic, Parameters(maxSequences: 1), Parameters(maxSequences: 1 << 16)] {
-            let (out, r) = try gpuSort(q, input, .uint32, p)
+            let buf = Self.shared(input)
+            let clock = ContinuousClock()
+            let t0 = clock.now
+            let r = try q.sort(buf, count: n, keyType: .uint32, parameters: p)
+            let outer = (clock.now - t0).seconds
+            let out = Self.contents(buf, n)
+            let durations = q.sorter.runner.gpuDurations
+            #expect(durations.count == q.sorter.runner.commits && durations.count >= 1)          // K-11
+            #expect(abs(durations.reduce(0, +) - r.gpuTime) < 1e-12)                             // K-11
+            #expect(r.wallTime <= outer)                                                         // K-11
             #expect(out == CPUReference.sortedReference(input, .uint32))
             let m = r.parameters.maxSequences
             #expect(r.count == n && r.auxiliaryBytes == 4 * n)

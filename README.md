@@ -11,6 +11,7 @@ The algorithm runs in two phases. In phase one, several threadgroups cooperate o
   - the Swift 6 toolchain (built and tested with Swift 6.4 and Xcode 27).
 - **Optional:** the Metal Toolchain, needed only to rebuild the shaders (`xcodebuild -downloadComponent MetalToolchain`). The compiled `.metallib` files are checked in, so `swift build` does not need it.
 - **Dependencies:** `swift-argument-parser` (CLI only). The library has no third-party dependencies.
+- **Parallel `std::sort` baseline:** the `CPUBaselines` target is built with `-fexperimental-library` to get libc++'s parallel algorithms. The SDK's `libc++experimental.a` is built for macOS 27, so the linker prints a deployment-version warning; the baseline is used only by `bench`.
 
 ```bash
 swift build -c release
@@ -25,7 +26,7 @@ swift build -c release
 .build/release/gpuqsort sort --in /tmp/keys.bin --out /tmp/sorted.bin
 .build/release/gpuqsort verify --dist all --n 1K,1M --key all
 
-# Benchmark against three CPU sorts (Swift Array.sort, libc qsort, C++ std::sort).
+# Benchmark against four CPU sorts (Swift Array.sort, libc qsort, C++ std::sort, parallel std::sort).
 .build/release/gpuqsort bench --dist uniform --n 1M,16M --runs 5 --cpu
 ```
 
@@ -67,10 +68,10 @@ Errors are `GPUQuicksortError` cases (SPEC C-07). Key values are never logged.
 | `gen --dist D --n N --out F [--key K] [--seed S]` | Write a [P §5.3] distribution (`uniform`, `sorted`, `zero`, `bucket`, `gaussian`, `staggered`, plus test-only `fullrange`) as raw little-endian 4-byte keys |
 | `sort --in F --out F [--key K]` | Sort a raw key file on the GPU |
 | `verify [--dist all] [--n 1K,1M] [--key all] [--runs R]` | Compare GPU output bit for bit against the CPU reference; prints `PASS`/`FAIL` lines |
-| `bench [--dist all] [--n 1M,…,16M] [--runs 5] [--cpu] [--format csv\|json]` | Time only the sort, discard one warm-up run, verify every run. Refuses a debug build unless `--allow-debug` is passed. |
+| `bench [--dist all] [--n 1M,…,16M] [--runs 5] [--cpu] [--format csv\|json]` | Time only the sort, discard one warm-up run, verify every run. `--cpu` adds `cpu-swift`, `cpu-qsort`, `cpu-stdsort` and `cpu-stdsort-par` (parallel `std::sort`). Refuses a debug build unless `--allow-debug` is passed. |
 | `tune [--n 512K,…,16M] [--runs 3] [--write] [--as-default]` | Grid-search threads/maxseq/minseq per size, fit the `optp` constants, and optionally write the table. Refuses a debug build unless `--allow-debug` is passed. |
 
-Tuning flags for `sort`, `verify` and `bench`: `--threads T`, `--maxseq N`, `--minseq N`, `--pivot median|minmax`. Sizes accept the suffixes `K` ($2^{10}$) and `M` ($2^{20}$).
+Tuning flags for `sort`, `verify` and `bench`: `--threads T`, `--maxseq N`, `--minseq N`, `--pivot minmax|median`. The default phase-one pivot is `minmax` (the average of the sequence's minimum and maximum, as in the paper's experiments); `median` selects median-of-three. Sizes accept the suffixes `K` ($2^{10}$) and `M` ($2^{20}$).
 
 **Exit codes** (SPEC §7.2):
 

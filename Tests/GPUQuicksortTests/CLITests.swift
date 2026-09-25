@@ -64,7 +64,7 @@ struct CLITests {
     }
 
     /// T-28: `bench --n 1M --runs 3 --dist uniform --cpu --allow-debug` emits the exact §5.2 header,
-    /// 3 × 4 data rows (gpu-quicksort plus three cpu-* algorithms; the warm-up is not emitted),
+    /// 3 × 5 data rows (gpu-quicksort plus four cpu-* algorithms; the warm-up is not emitted),
     /// verified=true on every row, provenance columns equal to `info --json`'s version and
     /// metallibSHA256 and the tuning entry in effect, and nothing on stderr without --verbose.
     /// Proves R-23, R-22, R-26.
@@ -75,9 +75,9 @@ struct CLITests {
         let lines = r.stdout.split(separator: "\n").map(String.init)
         #expect(lines.first == "device,key,distribution,n,run,algorithm,wall_ms,gpu_ms,threads,maxseq,minseq,phase1_iterations,phase1_sequences,max_stack_depth,verified,gpuqsort_version,metallib_sha256,tuning_entry,os_version")
         let rows = lines.dropFirst().map { BenchParse.fields($0) }
-        #expect(rows.count == 12)
+        #expect(rows.count == 15)
         let algos = Dictionary(grouping: rows, by: { $0[5] })
-        #expect(Set(algos.keys) == ["gpu-quicksort", "cpu-swift", "cpu-qsort", "cpu-stdsort"])
+        #expect(Set(algos.keys) == ["gpu-quicksort", "cpu-swift", "cpu-qsort", "cpu-stdsort", "cpu-stdsort-par"])
         for row in rows {
             #expect(row.count == 19 && row[14] == "true" && row[3] == "1048576")
             #expect(row[15] == info.version && row[16] == info.metallibSHA256)

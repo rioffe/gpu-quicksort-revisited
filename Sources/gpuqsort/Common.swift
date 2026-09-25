@@ -138,14 +138,14 @@ struct TuningFlags: ParsableArguments {
     @Option(name: .customLong("threads"), help: "Threads per threadgroup T.") var threads: Int?
     @Option(help: "Maximum phase-one sequences.") var maxseq: Int?
     @Option(help: "Minimum Quicksort sequence length.") var minseq: Int?
-    @Option(help: "Phase-one pivot: median | minmax.") var pivot: String = "median"
+    @Option(help: "Phase-one pivot: minmax (default, D-10) | median.") var pivot: String = "minmax"
 
     func parameters() throws -> Parameters {
         let piv: PhaseOnePivot
         switch pivot {
-        case "median": piv = .medianOfThree
         case "minmax": piv = .minMaxAverage
-        default: throw ValidationError("--pivot must be median or minmax")
+        case "median": piv = .medianOfThree
+        default: throw ValidationError("--pivot must be minmax or median")
         }
         return Parameters(threadsPerThreadgroup: threads, maxSequences: maxseq, minSequenceLength: minseq, phaseOnePivot: piv)
     }

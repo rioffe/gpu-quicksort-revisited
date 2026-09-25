@@ -19,7 +19,9 @@ let package = Package(
         .target(
             name: "CPUBaselines",
             cSettings: [.unsafeFlags(["-O3"])],
-            cxxSettings: [.unsafeFlags(["-O3"])]
+            // D-23: libc++'s parallel algorithms (std::execution::par) need -fexperimental-library.
+            cxxSettings: [.unsafeFlags(["-O3", "-fexperimental-library"])],
+            linkerSettings: [.linkedLibrary("c++experimental")]
         ),
         .target(
             name: "GPUQuicksort",

@@ -171,9 +171,11 @@ import Testing
     // MARK: C-11 CPU baselines (T-39, baseline half)
 
     /// T-39 (baseline half; the `bench` debug guard is in CLITests): `cpub_qsort_u32`,
-    /// `cpub_stdsort_u32` and `cpu-swift` produce output identical to CPUReference for every C-08
-    /// distribution and key type at n ∈ {0, 1, 2, 1000, 10^6}. Proves R-26, C-11.
+    /// `cpub_stdsort_u32`, `cpub_stdsort_par_u32` and `cpu-swift` produce output identical to
+    /// CPUReference for every C-08 distribution and key type at n ∈ {0, 1, 2, 1000, 10^6}.
+    /// Proves R-26, C-11.
     @Test func cpuBaselinesMatchReference() {
+        #expect(CPUBaseline.allCases.map(\.rawValue) == ["cpu-swift", "cpu-qsort", "cpu-stdsort", "cpu-stdsort-par"])
         for d in Distribution.allCases {
             for key in KeyType.allCases {
                 for n in [0, 1, 2, 1000, 1_000_000] {

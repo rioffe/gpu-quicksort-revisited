@@ -1,6 +1,6 @@
 # Spec build report — GPU-Quicksort for Metal
 
-> - **Spec:** `SPEC.md` v0.4 (sha256 `b05ffbd347f63bb89a07c40d9b54986f69641f2717d6a79f8f7a6936ba3563e0`)
+> - **Spec:** `SPEC.md` v0.5 (built from v0.4, then updated for D-10 revised and D-12 extended)
 > - **Plan:** `IMPLEMENTATION_PLAN.md` with waves W0 to W6
 > - **Reference machine:** Apple M5 Max, Version 26.6.2 (Build 25G83), Swift 6.4, Xcode 27.0, Metal toolchain 32023.921
 > - **Status:** BUILT; conformance PASS WITH NOTES (see *Verdict*)
@@ -22,94 +22,91 @@ T-17 *(recorded)* is a code inspection of `Sources/GPUQuicksort/Metal/GPUQuickso
 
 ## Performance
 
-All runs used the **release** build (`swift build -c release`) on the reference machine, after the tuning run (F-020).
+All runs used the **release** build (`swift build -c release`) on the reference machine, after the tuning run (F-020). These are the v0.5 recordings: the default phase-one pivot is `minMaxAverage` (D-10 revised), and the benchmark includes the fourth CPU baseline, `cpu-stdsort-par` (D-12, D-23). The v0.4 recordings (median-of-three default, three CPU baselines) are in git history at `1f9cb52`.
 
 ### T-34
 
 The tuning run was `.build/release/gpuqsort tune --write --as-default`, with the default sizes 512K..16M, `uniform`, `uint32`, 3 timed runs per configuration, and one warm-up discarded.
 
-- Status: `exit=0 elapsed_s=247`, so the elapsed time is 247 s, within the K-14 limit of 30 minutes.
+- Status: `exit=0 elapsed_s=119`, so the elapsed time is 119 s, within the K-14 limit of 30 minutes.
 - Grid points measured: 2016. Every run was verified against an oracle computed once per size.
-- Resulting table entry `Apple M5 Max`: fitted: 2026-09-25, `gpuqsortVersion` 0.4.0. `apple-default` is now `{"sameAs": "Apple M5 Max"}`.
+- Resulting table entry `Apple M5 Max`: fitted: 2026-09-25, `gpuqsortVersion` 0.4.0. `apple-default` is `{"sameAs": "Apple M5 Max"}`.
 
 Best configuration per size (the Apple analogue of [P Fig 11]):
 
 | n | threads | maxseq | minseq | median wall_ms |
 | ---: | ---: | ---: | ---: | ---: |
-| 524288 | 512 | 64 | 4096 | 1.962 |
-| 1048576 | 512 | 128 | 4096 | 2.471 |
-| 2097152 | 1024 | 256 | 4096 | 3.561 |
-| 4194304 | 512 | 512 | 4096 | 5.418 |
-| 8388608 | 128 | 4096 | 512 | 8.781 |
-| 16777216 | 256 | 4096 | 1024 | 14.963 |
+| 524288 | 1024 | 32 | 4096 | 1.509 |
+| 1048576 | 512 | 128 | 2048 | 1.855 |
+| 2097152 | 512 | 64 | 4096 | 2.452 |
+| 4194304 | 32 | 1024 | 128 | 3.991 |
+| 8388608 | 128 | 2048 | 256 | 6.413 |
+| 16777216 | 512 | 2048 | 4096 | 11.944 |
 
 Fitted constants (the Apple analogue of [P Tab II]; OLS per C-10, then clamped to $k \geq 0$, $m \geq 1$):
 
-| Parameter | $k$ | $m$ | Default for 1M / 16M keys |
-| --------- | --: | --: | ---------------------- |
-| threads per threadgroup | 0 | 490.7 | 512 / 512 |
-| max sequences in phase one | 0.0002873 | 1.0 | 256 / 4096 |
-| min sequence length | 0 | 2986.7 | 4096 / 4096 |
+| Parameter | $k$ | $m$ |
+| --------- | --: | --: |
+| threads per threadgroup | 0 | 453.3 |
+| max sequences in phase one | 0.0001381 | 130.5 |
+| min sequence length | 1.683e-05 | 2360.7 |
 
-The Apple fit differs sharply from the paper's 8800GTX constants:
-- larger threadgroups (512 vs 64–256);
-- a much larger alternative-sort threshold (4096 vs 256–1024), because Apple GPUs have 32 KiB of threadgroup memory and fast threadgroup barriers;
-- a phase-one sequence budget growing about linearly with $n$.
+With these constants the defaults are threads 512, `maxseq` 256 and `minseq` 2048 at 1M keys, and threads 512, `maxseq` 2048 and `minseq` 2048 at 16M keys.
 
 ### T-32
 
 The benchmark run was `.build/release/gpuqsort --verbose bench --dist all --n 1M,2M,4M,8M,16M --runs 5 --cpu`.
 
-- Status: `exit=0 elapsed_s=135`.
-- Rows: 600, all `verified=true`.
+- Status: `exit=0 elapsed_s=141`.
+- Rows: 750, all `verified=true`.
 - Provenance: metallib `daefabcd5b9a6b33c15bbfb51561bd493900dc5a37ad5b75a09f8ca0da89ca3b`, tuning entry `Apple M5 Max`, gpuqsort 0.4.0.
 
 The table gives the median `wall_ms` over 5 timed runs, for `uint32` keys (compare [P Fig 4]):
 
-| Distribution | n | gpu-quicksort | cpu-swift | cpu-qsort | cpu-stdsort |
-| --- | ---: | ---: | ---: | ---: | ---: |
-| uniform | 1M | 3.294 | 76.825 | 65.044 | 14.431 |
-| uniform | 2M | 4.456 | 161.628 | 135.917 | 29.824 |
-| uniform | 4M | 6.675 | 337.692 | 284.218 | 61.118 |
-| uniform | 8M | 10.488 | 705.421 | 587.635 | 122.799 |
-| uniform | 16M | 17.394 | 1452.308 | 1215.747 | 250.533 |
-| sorted | 1M | 3.719 | 0.703 | 2.620 | 0.689 |
-| sorted | 2M | 3.543 | 1.450 | 5.265 | 1.380 |
-| sorted | 4M | 6.167 | 2.862 | 10.518 | 2.734 |
-| sorted | 8M | 9.351 | 5.682 | 21.045 | 5.481 |
-| sorted | 16M | 16.044 | 11.371 | 42.118 | 10.980 |
-| zero | 1M | 0.446 | 0.702 | 0.926 | 0.880 |
-| zero | 2M | 0.751 | 1.444 | 1.917 | 1.746 |
-| zero | 4M | 1.473 | 2.876 | 3.747 | 3.468 |
-| zero | 8M | 2.147 | 5.663 | 7.663 | 6.944 |
-| zero | 16M | 2.318 | 11.333 | 15.171 | 13.971 |
-| bucket | 1M | 3.730 | 50.749 | 52.288 | 14.778 |
-| bucket | 2M | 4.626 | 109.277 | 109.939 | 30.252 |
-| bucket | 4M | 6.271 | 232.717 | 233.820 | 61.750 |
-| bucket | 8M | 10.270 | 496.511 | 495.043 | 126.714 |
-| bucket | 16M | 18.328 | 1051.071 | 1024.517 | 259.986 |
-| gaussian | 1M | 3.005 | 74.181 | 63.394 | 14.079 |
-| gaussian | 2M | 3.703 | 158.239 | 135.102 | 28.832 |
-| gaussian | 4M | 6.348 | 328.072 | 281.496 | 59.414 |
-| gaussian | 8M | 10.192 | 687.324 | 587.051 | 121.822 |
-| gaussian | 16M | 18.264 | 1433.397 | 1201.872 | 252.751 |
-| staggered | 1M | 3.214 | 50.172 | 50.002 | 15.733 |
-| staggered | 2M | 5.486 | 108.235 | 108.078 | 32.257 |
-| staggered | 4M | 8.018 | 231.916 | 227.765 | 66.529 |
-| staggered | 8M | 15.429 | 495.376 | 482.684 | 135.216 |
-| staggered | 16M | 33.137 | 1052.305 | 1007.700 | 275.529 |
+| Distribution | n | gpu-quicksort | cpu-swift | cpu-qsort | cpu-stdsort | cpu-stdsort-par |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| uniform | 1M | 2.120 | 74.684 | 63.744 | 14.122 | 8.270 |
+| uniform | 2M | 3.118 | 158.151 | 134.398 | 29.222 | 13.281 |
+| uniform | 4M | 4.730 | 331.292 | 280.964 | 60.058 | 23.720 |
+| uniform | 8M | 7.300 | 691.173 | 581.318 | 122.053 | 47.748 |
+| uniform | 16M | 13.003 | 1442.437 | 1222.627 | 251.053 | 95.345 |
+| sorted | 1M | 2.265 | 0.705 | 2.615 | 0.693 | 3.179 |
+| sorted | 2M | 3.018 | 1.441 | 5.224 | 1.374 | 5.651 |
+| sorted | 4M | 4.756 | 2.823 | 10.426 | 2.739 | 9.777 |
+| sorted | 8M | 7.266 | 5.664 | 20.884 | 5.468 | 15.312 |
+| sorted | 16M | 12.531 | 11.383 | 42.154 | 11.067 | 29.935 |
+| zero | 1M | 0.887 | 0.731 | 0.985 | 0.902 | 2.695 |
+| zero | 2M | 1.038 | 1.464 | 1.916 | 1.738 | 4.701 |
+| zero | 4M | 1.217 | 2.883 | 3.765 | 3.484 | 8.032 |
+| zero | 8M | 1.866 | 5.686 | 7.788 | 6.983 | 13.478 |
+| zero | 16M | 1.883 | 11.438 | 15.273 | 13.935 | 25.666 |
+| bucket | 1M | 2.408 | 50.772 | 52.827 | 14.754 | 7.475 |
+| bucket | 2M | 3.463 | 108.507 | 111.578 | 31.421 | 13.345 |
+| bucket | 4M | 4.834 | 237.400 | 234.736 | 61.905 | 23.471 |
+| bucket | 8M | 9.419 | 502.238 | 489.689 | 126.718 | 44.991 |
+| bucket | 16M | 13.042 | 1054.787 | 1037.291 | 259.114 | 88.160 |
+| gaussian | 1M | 2.677 | 74.497 | 63.877 | 14.106 | 8.204 |
+| gaussian | 2M | 3.200 | 156.561 | 133.462 | 28.871 | 13.287 |
+| gaussian | 4M | 5.054 | 328.587 | 280.150 | 59.166 | 24.155 |
+| gaussian | 8M | 7.872 | 686.300 | 585.491 | 122.131 | 47.859 |
+| gaussian | 16M | 13.569 | 1435.991 | 1215.594 | 253.034 | 94.717 |
+| staggered | 1M | 2.393 | 50.253 | 50.372 | 15.777 | 6.392 |
+| staggered | 2M | 3.217 | 108.068 | 107.887 | 32.321 | 10.620 |
+| staggered | 4M | 4.754 | 239.789 | 223.739 | 66.593 | 17.362 |
+| staggered | 8M | 7.634 | 500.892 | 472.875 | 135.080 | 32.702 |
+| staggered | 16M | 13.177 | 1056.390 | 1010.806 | 274.919 | 59.148 |
 
-**K-13 ratio** (`uniform`, 16M keys): GPU-Quicksort median 17.394 ms against the fastest CPU baseline (cpu-stdsort) at 250.533 ms. The ratio is $ 17.394 / 250.533 = 0.069$, which satisfies the K-13 target of $\leq 0.5$ (the GPU is 14.4× faster). Against Swift `Array.sort()`, the GPU is 83× faster.
+**K-13 ratio** (`uniform`, 16M keys): GPU-Quicksort median 13.003 ms against the fastest CPU baseline (cpu-stdsort-par) at 95.345 ms. The ratio is $ 13.003 / 95.345 = 0.136$, which satisfies the K-13 target of $\leq 0.5$ (the GPU is 7.3× faster). Against sequential `std::sort` the GPU is 19.3× faster, and against Swift `Array.sort()` 111× faster.
 
 Observations against [P §5.4]:
-- GPU-Quicksort beats every CPU baseline on `uniform`, `zero`, `bucket`, `gaussian` and `staggered` at every size.
-- On `sorted` input, `cpu-swift` and `cpu-stdsort` are faster (0.7–11 ms), because both detect or benefit from presorted runs. The paper reports the same effect ("The CPU reference becomes faster … on the sorted distribution").
-- `zero` is the fastest GPU case: one phase-one iteration and no phase two (K-10, E-24).
-- `staggered` is the slowest GPU distribution at 16M keys (33 ms): its value ranges interleave, so median-of-three pivots split it less evenly.
+- GPU-Quicksort beats every CPU baseline, including parallel `std::sort`, on `uniform`, `bucket`, `gaussian` and `staggered` at every size, and on `zero` from 2M keys up.
+- On `sorted` input, sequential `std::sort` and Swift's sort are still faster up to 32M keys, because both detect presorted runs; parallel `std::sort` does not, and the GPU beats it at every size. The paper reports the same effect for its CPU reference.
+- With the `minMaxAverage` pivot, `staggered` is no longer an outlier: 12 phase-one iterations at 16M, like the other random distributions.
+- The 32M and 64M results are in `recorded/bench-large.csv` and `PERFORMANCE.md`.
 
 ### T-33
 
-The scaling factor of the median `wall_ms` from 1M to 16M `uniform` keys is **5.28**. The spec's T-33 row expects a factor in $[12, 24]$, and the measured value is below that range: at 1M keys the sort takes about 3 ms and is dominated by fixed per-iteration host round trips (one command-buffer commit and read-back per phase-one iteration), not by memory bandwidth. So the time grows sub-linearly between 1M and 16M. T-33 has no gating id. The discrepancy is recorded as spec finding **F-031** (below) rather than hidden.
+The scaling factor of the median `wall_ms` from 1M to 16M `uniform` keys is **6.13**. The spec's T-33 row expects a factor in $[12, 24]$, and the measured value is below that range: at 1M keys the sort takes about 2 ms and is dominated by fixed per-iteration host round trips (one command-buffer commit and read-back per phase-one iteration), not by memory bandwidth. So the time grows sub-linearly between 1M and 16M. T-33 has no gating id. The discrepancy is recorded as spec finding **F-031** (below) rather than hidden.
 
 ## Wave ledger
 
@@ -125,7 +122,7 @@ The scaling factor of the median `wall_ms` from 1M to 16M `uniform` keys is **5.
 
 ## Conformance gate
 
-The final run was `swift test --xunit-output junit.xml`: **56 tests in 10 suites passed**, 0 skipped. All T-34 prerequisites exist, so no recorded test is skipped.
+This is the final run, for `SPEC.md` v0.5. `swift test --xunit-output junit.xml`: **56 tests in 10 suites passed**, 0 skipped.
 
 Phase A (mock judge):
 
@@ -140,7 +137,7 @@ Phase B (LLM judge `openai/gpt-6-luna-pro` via OpenRouter, `--judge-concurrency 
 speccheck: CONFORMING - 128/128 passing (100.0%), 0 failing, 0 skipped, 0 weak, 0 unverified, 0 untested, 0 uncited; 0 dangling, 0 stale; judge=llm
 ```
 
-It judged 188 edges, 5 of them unknown, so $\mathit{unknown\_rate} = 0.0266 \leq 0.2$. Elapsed time was 175 s. The per-id evidence is in `build/speccheck/SPEC_CONFORMANCE_REPORT.md` and `build/speccheck-llm/SPEC_CONFORMANCE_REPORT.md` (build output, not committed).
+It judged 189 edges, 4 of them unknown, so $\mathit{unknown\_rate} = 0.0212 \leq 0.2$. Elapsed time was 185 s. On v0.5 the first Phase B run found one weakly passing id, K-11: T-21 checked only that the timing fields were positive and ordered. T-21 now asserts that `gpuTime` equals the exact sum of the per-command-buffer GPU durations (one per commit), and that `wallTime` lies within a ContinuousClock measurement around the call.
 
 The first Phase B run found **14 weakly passing ids**. Each was fixed by strengthening its test, never by weakening a citation to a real requirement:
 
@@ -192,7 +189,7 @@ The first Phase B run found **14 weakly passing ids**. Each was fixed by strengt
 ```text
 Spec coverage: 128/128 IDs realized (0 deferred)
 speccheck (mock): speccheck: CONFORMING - 128/128 passing (100.0%), 0 failing, 0 skipped, 0 weak, 0 unverified, 0 untested, 0 uncited; 0 dangling, 0 stale; judge=mock
-speccheck (llm):  speccheck: CONFORMING - 128/128 passing (100.0%), 0 failing, 0 skipped, 0 weak, 0 unverified, 0 untested, 0 uncited; 0 dangling, 0 stale; judge=llm (openai/gpt-6-luna-pro via OpenRouter, unknown_rate 0.0266)
+speccheck (llm):  speccheck: CONFORMING - 128/128 passing (100.0%), 0 failing, 0 skipped, 0 weak, 0 unverified, 0 untested, 0 uncited; 0 dangling, 0 stale; judge=llm (openai/gpt-6-luna-pro via OpenRouter, unknown_rate 0.0212)
 Observed: n/a — no rendered surface; the "live pass" was the release CLI on the reference machine (tune, bench, info, gen, sort, verify), all recorded above
 Readiness: BUILT
 Conformance: PASS WITH NOTES (F-031: T-33 range does not match the measured scaling; F-032: E-09 uses an observed-status hook, not a driver-produced error)

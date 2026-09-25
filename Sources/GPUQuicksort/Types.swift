@@ -23,12 +23,12 @@ public struct Parameters: Sendable, Codable, Equatable {
     public var threadsPerThreadgroup: Int?
     public var maxSequences: Int?
     public var minSequenceLength: Int?
-    public var phaseOnePivot: PhaseOnePivot = .medianOfThree
+    public var phaseOnePivot: PhaseOnePivot = .minMaxAverage     // D-10 (revised v0.5), R-11
     public var maxPhaseOneIterations: Int = 64          // K-07
     public static let automatic = Parameters()
 
     public init(threadsPerThreadgroup: Int? = nil, maxSequences: Int? = nil, minSequenceLength: Int? = nil,
-                phaseOnePivot: PhaseOnePivot = .medianOfThree, maxPhaseOneIterations: Int = 64) {
+                phaseOnePivot: PhaseOnePivot = .minMaxAverage, maxPhaseOneIterations: Int = 64) {
         self.threadsPerThreadgroup = threadsPerThreadgroup
         self.maxSequences = maxSequences
         self.minSequenceLength = minSequenceLength

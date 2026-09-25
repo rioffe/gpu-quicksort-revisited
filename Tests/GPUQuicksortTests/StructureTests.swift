@@ -119,7 +119,8 @@ struct StructureTests {
             }
         }
         defer { q.sorter.phaseOneObserver = nil }
-        let (out, r) = try gpuSort(q, input, .uint32)
+        // The child-pivot check above is written for median-of-three, so select it explicitly.
+        let (out, r) = try gpuSort(q, input, .uint32, Parameters(phaseOnePivot: .medianOfThree))
         #expect(out == CPUReference.sortedReference(input, .uint32))
         #expect(checked >= r.phaseOneIterations && checked > 1)
         let log = q.sorter.runner.dispatchLog

@@ -50,16 +50,16 @@ import Testing
     @Test func benchTableRecorded() throws {
         let csv = try String(contentsOf: TS.packageRoot.appendingPathComponent("recorded/bench.csv"), encoding: .utf8)
         let rows = csv.split(separator: "\n").dropFirst().map { BenchParse.fields(String($0)) }
-        #expect(rows.count == 6 * 5 * 4 * 5 && rows.allSatisfy { $0[14] == "true" })
+        #expect(rows.count == 6 * 5 * 5 * 5 && rows.allSatisfy { $0[14] == "true" })
         func median(_ algo: String) -> Double {
             let v = rows.filter { $0[2] == "uniform" && $0[3] == "16777216" && $0[5] == algo }.map { Double($0[6])! }.sorted()
             return v.count % 2 == 1 ? v[v.count / 2] : (v[v.count / 2 - 1] + v[v.count / 2]) / 2
         }
         let gpu = median("gpu-quicksort")
-        let fastestCPU = ["cpu-swift", "cpu-qsort", "cpu-stdsort"].map(median).min()!
+        let fastestCPU = ["cpu-swift", "cpu-qsort", "cpu-stdsort", "cpu-stdsort-par"].map(median).min()!
         #expect(gpu > 0 && gpu / fastestCPU <= 0.5, "K-13 ratio \(gpu / fastestCPU)")          // K-13
         let s = try #require(Self.section("### T-32"), "SPEC_BUILD_REPORT.md §Performance lacks ### T-32")
-        for algo in ["gpu-quicksort", "cpu-swift", "cpu-qsort", "cpu-stdsort"] { #expect(s.contains(algo)) }
+        for algo in ["gpu-quicksort", "cpu-swift", "cpu-qsort", "cpu-stdsort", "cpu-stdsort-par"] { #expect(s.contains(algo)) }
         for d in ["uniform", "sorted", "zero", "bucket", "gaussian", "staggered"] { #expect(s.contains(d)) }
         #expect(s.contains("K-13 ratio"))
         #expect(s.contains("release"))
