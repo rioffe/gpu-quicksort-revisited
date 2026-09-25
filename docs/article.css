@@ -1,0 +1,146 @@
+/* docs/article.css -- readable, single-column stylesheet for the article HTML build.
+ * Adapted from speccheck's docs/article.css; inlined by `make article`
+ * via pandoc --include-in-header, so the published page needs no external CSS. */
+
+:root {
+   --page-max: 46rem;
+   --ink: #1a1a1a;
+   --muted: #555;
+   --link: #0057b8;
+   --rule: #e2e2e2;
+   --code-bg: #f5f5f5;
+   --quote: #f7f7f7;
+}
+
+html {
+   font-family: Georgia, "Times New Roman", serif;
+   font-size: 1.06rem;
+   line-height: 1.55;
+   color: var(--ink);
+   background: #ffffff;
+}
+
+body {
+   max-width: var(--page-max);
+   margin: 0 auto;
+   padding: 2rem 1.25rem 4rem;
+}
+
+h1, h2, h3, h4 {
+   font-family: "Helvetica Neue", Arial, sans-serif;
+   line-height: 1.3;
+   color: var(--ink);
+}
+h1 { font-size: 1.9rem; margin-top: 1.2rem; padding-bottom: 0.3rem; border-bottom: 1px solid var(--rule); }
+h2 { font-size: 1.3rem; margin-top: 1.8rem; }
+h3 { font-size: 1.12rem; margin-top: 1.4rem; }
+
+a { color: var(--link); text-decoration: none; }
+a:hover { text-decoration: underline; }
+
+hr { border: 0; border-top: 1px solid var(--rule); margin: 2rem 0; }
+
+blockquote {
+   margin: 1.2rem 0;
+   padding: 0.6rem 1rem;
+   background: var(--quote);
+   border-left: 4px solid var(--rule);
+   color: var(--ink);
+}
+blockquote p { margin: 0.3rem 0; }
+
+code {
+   font-family: "SFMono-Regular", Menlo, Consolas, monospace;
+   font-size: 0.9em;
+   background: var(--code-bg);
+   padding: 0 0.2em;
+   border-radius: 3px;
+}
+pre {
+   background: var(--code-bg);
+   padding: 0.85rem 1rem;
+   overflow-x: auto;
+   border-radius: 6px;
+   line-height: 1.4;
+}
+pre code { background: none; padding: 0; }
+
+/* The mermaid diagram (inlined as an embedded SVG by the build). */
+.mermaid, figure img, p > img { max-width: 100%; height: auto; }
+figure { margin: 1.5rem 0; text-align: center; }
+figcaption { font-size: 0.85rem; color: var(--muted); margin-top: 0.35rem; }
+
+ol > li, ul > li { margin: 0.35rem 0; }
+
+@media print {
+   html { font-size: 11pt; }
+   body { max-width: none; padding: 0; }
+   a { color: inherit; }
+}
+
+/* ---- Floating table of contents: a rail to the left of the reading column on wide screens
+ * (pandoc --toc emits <nav id="TOC"> before the body), stacked above it on narrow ones. ---- */
+:root {
+   --rail: 16rem;
+   --gutter: 3.5rem; /* clear space between the rail's right edge and the text column */
+}
+header#title-block-header h1.title {
+   font-size: 1.9rem;
+   margin-top: 1.2rem;
+   padding-bottom: 0.3rem;
+   border-bottom: 1px solid var(--rule);
+}
+nav#TOC {
+   box-sizing: border-box; /* the rail's width includes its padding and border */
+   font-family: "Helvetica Neue", Arial, sans-serif;
+   font-size: 0.88rem;
+   line-height: 1.4;
+   background: #fafafa;
+   border: 1px solid #dcdcdc;
+   border-radius: 6px;
+   padding: 0.75rem 1rem;
+   margin: 1.5rem 0;
+}
+nav#TOC #toc-title {
+   font-size: 0.8rem;
+   letter-spacing: 0.08em;
+   text-transform: uppercase;
+   color: var(--muted);
+   margin: 0 0 0.5rem;
+   border: 0;
+}
+nav#TOC ul { list-style: none; margin: 0; padding: 0; }
+nav#TOC ul ul { padding-left: 0.9rem; }
+nav#TOC li { margin: 0.25rem 0; }
+nav#TOC a { color: var(--ink); }
+nav#TOC a:hover { color: var(--link); }
+
+/* Wide screens: pin the rail to the viewport, just left of the centered column, and let it
+ * scroll on its own if it is taller than the window. */
+@media (min-width: 86rem) {
+   nav#TOC {
+      position: fixed;
+      top: 2rem;
+      left: max(0.75rem, calc(50vw - var(--page-max) / 2 - var(--gutter) - var(--rail)));
+      width: var(--rail);
+      max-height: calc(100vh - 4rem);
+      overflow-y: auto;
+      margin: 0;
+   }
+}
+@media print {
+   nav#TOC { display: none; }
+}
+
+/* ---- Tables (the article leans on them) and display math. ---- */
+table {
+   border-collapse: collapse;
+   margin: 1.2rem 0;
+   font-size: 0.92rem;
+   display: block;       /* narrow screens: scroll the table, not the page */
+   overflow-x: auto;
+}
+th, td { border: 1px solid var(--rule); padding: 0.35rem 0.6rem; vertical-align: top; }
+thead th { background: #fafafa; font-family: "Helvetica Neue", Arial, sans-serif; text-align: left; }
+tbody tr:nth-child(even) { background: #fcfcfc; }
+math[display="block"] { margin: 1rem 0; overflow-x: auto; }

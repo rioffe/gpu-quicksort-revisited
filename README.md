@@ -4,6 +4,8 @@ A Swift + Metal implementation of **GPU-Quicksort** (Cederman and Tsigas, *GPU-Q
 
 It is fast. On an Apple M5 Max it sorts **64 million 32-bit keys in 43 ms, about 1.55 billion keys per second**. That is **9× faster than parallel `std::sort` running on all 18 CPU cores**, 24× faster than `std::sort`, and 145× faster than Swift's `Array.sort()`. 16M keys take 13 ms. It stays ahead on every random input distribution from the paper, including the adversarial `staggered` one, and all-equal input sorts at nearly 10 billion keys per second. The one case where a CPU sort keeps up is already-sorted input, where sequential `std::sort` detects the presorted runs; at 64M keys GPU-Quicksort matches it. Full numbers, methodology and next steps are in [PERFORMANCE.md](PERFORMANCE.md).
 
+For an overview of what the project built and how it was verified, read the article [GPU-Quicksort, Revisited](https://rioffe.github.io/gpu-quicksort-revisited/) (source: [`docs/ARTICLE.md`](docs/ARTICLE.md)). For a tour of the code, see [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
+
 The paper itself is not included in this repository; read it at the DOI above. `SPEC.md` cites it as [P §n], [P Alg n], [P Fig n] and [P Tab n].
 
 The algorithm runs in two phases. In phase one, several threadgroups cooperate on one sequence. Each threadgroup counts its section, runs a prefix sum, reserves output space with one atomic fetch-and-add per side, and scatters into an auxiliary buffer; the host loops until enough independent subsequences exist. In phase two, each threadgroup sorts one subsequence on its own, using an explicit stack (shorter part first) and a bitonic sort once a part fits in threadgroup memory.

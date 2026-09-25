@@ -15,7 +15,9 @@ This repository takes that paper and carries it to a modern GPU. It does four th
 4. **Proves** it correct in the Lean theorem prover: first the specification, then the code itself.
 
 This article summarizes what was built, how well it works, and how we know it is right. For a tour
-of the source code, see [`ARCHITECTURE.md`](ARCHITECTURE.md).
+of the source code, see [`ARCHITECTURE.md`](ARCHITECTURE.md). The project was built with the
+spec-driven method of [speccheck](https://github.com/rioffe/speccheck), which
+[Introducing speccheck](https://rioffe.github.io/speccheck/introducing-speccheck.html) explains.
 
 ---
 
@@ -330,6 +332,8 @@ start as a change to the specification:
 | --- | --- |
 | Using the library or the command-line tool | [`README.md`](../README.md) |
 | How the code is organized | [`docs/ARCHITECTURE.md`](ARCHITECTURE.md) |
+| The spec-driven method and its tools | [speccheck](https://github.com/rioffe/speccheck) |
+| Why speccheck exists and how it works | [Introducing speccheck](https://rioffe.github.io/speccheck/introducing-speccheck.html) |
 | The exact contract | [`SPEC.md`](../SPEC.md) |
 | Performance numbers and method | [`PERFORMANCE.md`](../PERFORMANCE.md) |
 | Conformance evidence and recorded runs | [`SPEC_BUILD_REPORT.md`](../SPEC_BUILD_REPORT.md) |

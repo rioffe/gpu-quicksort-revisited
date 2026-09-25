@@ -1,0 +1,873 @@
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml">
+<head>
+  <meta charset="utf-8" />
+  <meta name="generator" content="pandoc 3.11" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes" />
+  <title>GPU-Quicksort, Revisited</title>
+  <style>
+
+html {
+color: #1a1a1a;
+background-color: #fdfdfd;
+}
+body {
+margin: 0 auto;
+max-width: 36em;
+padding-left: 50px;
+padding-right: 50px;
+padding-top: 50px;
+padding-bottom: 50px;
+hyphens: auto;
+overflow-wrap: break-word;
+text-rendering: optimizeLegibility;
+font-kerning: normal;
+}
+@media (max-width: 600px) {
+body {
+font-size: 0.9em;
+padding: 12px;
+}
+h1 {
+font-size: 1.8em;
+}
+}
+@media print {
+html {
+background-color: white;
+}
+body {
+background-color: transparent;
+color: black;
+}
+p, h2, h3 {
+orphans: 3;
+widows: 3;
+}
+h2, h3, h4 {
+page-break-after: avoid;
+}
+}
+p {
+margin: 1em 0;
+}
+a {
+color: #1a1a1a;
+}
+a:visited {
+color: #1a1a1a;
+}
+img {
+max-width: 100%;
+}
+svg {
+height: auto;
+max-width: 100%;
+}
+h1, h2, h3, h4, h5, h6 {
+margin-top: 1.4em;
+}
+h5, h6 {
+font-size: 1em;
+font-style: italic;
+}
+h6 {
+font-weight: normal;
+}
+ol, ul {
+padding-left: 1.7em;
+margin-top: 1em;
+}
+li > ol, li > ul {
+margin-top: 0;
+}
+blockquote {
+margin: 1em 0 1em 1.7em;
+padding-left: 1em;
+border-left: 2px solid #e6e6e6;
+color: #606060;
+}
+code {
+white-space: pre-wrap;
+font-family: Menlo, Monaco, Consolas, 'Lucida Console', monospace;
+font-size: 85%;
+margin: 0;
+hyphens: manual;
+}
+pre {
+margin: 1em 0;
+overflow: auto;
+}
+pre code {
+padding: 0;
+overflow: visible;
+overflow-wrap: normal;
+}
+.sourceCode {
+background-color: transparent;
+overflow: visible;
+}
+hr {
+border: none;
+border-top: 1px solid #1a1a1a;
+height: 1px;
+margin: 1em 0;
+}
+table {
+margin: 1em 0;
+border-collapse: collapse;
+width: 100%;
+overflow-x: auto;
+display: block;
+font-variant-numeric: lining-nums tabular-nums;
+}
+table caption {
+margin-bottom: 0.75em;
+}
+tbody {
+margin-top: 0.5em;
+border-top: 1px solid #1a1a1a;
+border-bottom: 1px solid #1a1a1a;
+}
+th {
+border-top: 1px solid #1a1a1a;
+padding: 0.25em 0.5em 0.25em 0.5em;
+}
+td {
+padding: 0.125em 0.5em 0.25em 0.5em;
+}
+header {
+margin-bottom: 4em;
+text-align: center;
+}
+#TOC li {
+list-style: none;
+}
+#TOC ul {
+padding-left: 1.3em;
+}
+#TOC > ul {
+padding-left: 0;
+}
+#TOC a:not(:hover) {
+text-decoration: none;
+}
+span.smallcaps{font-variant: small-caps;}
+div.columns{display: flex; gap: 1.5em;}
+div.column{flex: auto;}
+@media screen {
+div.columns{gap: min(4vw, 1.5em);}
+div.column{overflow-x: auto;}
+}
+div.hanging-indent{margin-left: 1.5em; text-indent: -1.5em;}
+
+ul.task-list[class]{list-style: none;}
+ul.task-list li input[type="checkbox"] {
+font-size: inherit;
+width: 0.8em;
+margin: 0 0.8em 0.2em -1.6em;
+vertical-align: middle;
+}
+</style>
+  <style>
+
+:root {
+--page-max: 46rem;
+--ink: #1a1a1a;
+--muted: #555;
+--link: #0057b8;
+--rule: #e2e2e2;
+--code-bg: #f5f5f5;
+--quote: #f7f7f7;
+}
+html {
+font-family: Georgia, "Times New Roman", serif;
+font-size: 1.06rem;
+line-height: 1.55;
+color: var(--ink);
+background: #ffffff;
+}
+body {
+max-width: var(--page-max);
+margin: 0 auto;
+padding: 2rem 1.25rem 4rem;
+}
+h1, h2, h3, h4 {
+font-family: "Helvetica Neue", Arial, sans-serif;
+line-height: 1.3;
+color: var(--ink);
+}
+h1 { font-size: 1.9rem; margin-top: 1.2rem; padding-bottom: 0.3rem; border-bottom: 1px solid var(--rule); }
+h2 { font-size: 1.3rem; margin-top: 1.8rem; }
+h3 { font-size: 1.12rem; margin-top: 1.4rem; }
+a { color: var(--link); text-decoration: none; }
+a:hover { text-decoration: underline; }
+hr { border: 0; border-top: 1px solid var(--rule); margin: 2rem 0; }
+blockquote {
+margin: 1.2rem 0;
+padding: 0.6rem 1rem;
+background: var(--quote);
+border-left: 4px solid var(--rule);
+color: var(--ink);
+}
+blockquote p { margin: 0.3rem 0; }
+code {
+font-family: "SFMono-Regular", Menlo, Consolas, monospace;
+font-size: 0.9em;
+background: var(--code-bg);
+padding: 0 0.2em;
+border-radius: 3px;
+}
+pre {
+background: var(--code-bg);
+padding: 0.85rem 1rem;
+overflow-x: auto;
+border-radius: 6px;
+line-height: 1.4;
+}
+pre code { background: none; padding: 0; }
+
+.mermaid, figure img, p > img { max-width: 100%; height: auto; }
+figure { margin: 1.5rem 0; text-align: center; }
+figcaption { font-size: 0.85rem; color: var(--muted); margin-top: 0.35rem; }
+ol > li, ul > li { margin: 0.35rem 0; }
+@media print {
+html { font-size: 11pt; }
+body { max-width: none; padding: 0; }
+a { color: inherit; }
+}
+/* ---- Floating table of contents: a rail to the left of the reading column on wide screens
+* (pandoc --toc emits <nav id="TOC"> before the body), stacked above it on narrow ones. ---- */
+  :root {
+     --rail: 16rem;
+     --gutter: 3.5rem; /* clear space between the rail's right edge and the text column */
+  }
+  header#title-block-header h1.title {
+     font-size: 1.9rem;
+     margin-top: 1.2rem;
+     padding-bottom: 0.3rem;
+     border-bottom: 1px solid var(--rule);
+  }
+  nav#TOC {
+     box-sizing: border-box; /* the rail's width includes its padding and border */
+     font-family: "Helvetica Neue", Arial, sans-serif;
+     font-size: 0.88rem;
+     line-height: 1.4;
+     background: #fafafa;
+     border: 1px solid #dcdcdc;
+     border-radius: 6px;
+     padding: 0.75rem 1rem;
+     margin: 1.5rem 0;
+  }
+  nav#TOC #toc-title {
+     font-size: 0.8rem;
+     letter-spacing: 0.08em;
+     text-transform: uppercase;
+     color: var(--muted);
+     margin: 0 0 0.5rem;
+     border: 0;
+  }
+  nav#TOC ul { list-style: none; margin: 0; padding: 0; }
+  nav#TOC ul ul { padding-left: 0.9rem; }
+  nav#TOC li { margin: 0.25rem 0; }
+  nav#TOC a { color: var(--ink); }
+  nav#TOC a:hover { color: var(--link); }
+
+  /* Wide screens: pin the rail to the viewport, just left of the centered column, and let it
+   * scroll on its own if it is taller than the window. */
+  @media (min-width: 86rem) {
+     nav#TOC {
+        position: fixed;
+        top: 2rem;
+        left: max(0.75rem, calc(50vw - var(--page-max) / 2 - var(--gutter) - var(--rail)));
+        width: var(--rail);
+        max-height: calc(100vh - 4rem);
+        overflow-y: auto;
+        margin: 0;
+     }
+  }
+  @media print {
+     nav#TOC { display: none; }
+  }
+
+  /* ---- Tables (the article leans on them) and display math. ---- */
+  table {
+     border-collapse: collapse;
+     margin: 1.2rem 0;
+     font-size: 0.92rem;
+     display: block;       /* narrow screens: scroll the table, not the page */
+     overflow-x: auto;
+  }
+  th, td { border: 1px solid var(--rule); padding: 0.35rem 0.6rem; vertical-align: top; }
+  thead th { background: #fafafa; font-family: "Helvetica Neue", Arial, sans-serif; text-align: left; }
+  tbody tr:nth-child(even) { background: #fcfcfc; }
+  math[display="block"] { margin: 1rem 0; overflow-x: auto; }
+  </style>
+</head>
+<body>
+<header id="title-block-header">
+<h1 class="title">GPU-Quicksort, Revisited</h1>
+</header>
+<nav id="TOC" role="doc-toc">
+<h2 id="toc-title">Contents</h2>
+<ul>
+<li><a href="#at-a-glance" id="toc-at-a-glance">At a glance</a></li>
+<li><a href="#the-algorithm-in-brief" id="toc-the-algorithm-in-brief">1.
+The algorithm in brief</a></li>
+<li><a href="#specification-first" id="toc-specification-first">2.
+Specification first</a></li>
+<li><a href="#building-it" id="toc-building-it">3. Building it</a></li>
+<li><a href="#how-fast-is-it" id="toc-how-fast-is-it">4. How fast is
+it?</a></li>
+<li><a href="#how-do-we-know-it-is-correct" id="toc-how-do-we-know-it-is-correct">5. How do we know it is
+correct?</a></li>
+<li><a href="#what-was-found-along-the-way" id="toc-what-was-found-along-the-way">6. What was found along the
+way</a></li>
+<li><a href="#what-is-next" id="toc-what-is-next">7. What is
+next</a></li>
+<li><a href="#where-to-look" id="toc-where-to-look">8. Where to
+look</a></li>
+</ul>
+</nav>
+<p><em>Rebuilding a 2009 GPU sorting algorithm for Apple silicon, and
+proving it correct along the way</em></p>
+<p>In 2009, Daniel Cederman and Philippas Tsigas published
+<em>GPU-Quicksort: A Practical Quicksort Algorithm for Graphics
+Processors</em> (ACM Journal of Experimental Algorithmics, <a href="https://doi.org/10.1145/1498698.1564500">doi:10.1145/1498698.1564500</a>).
+It showed that quicksort, long thought to be a poor fit for GPUs, could
+be made fast on the hardware of the time.</p>
+<p>This repository takes that paper and carries it to a modern GPU. It
+does four things:</p>
+<ol type="1">
+<li><strong>Specifies</strong> the algorithm precisely, as a written
+contract with numbered requirements.</li>
+<li><strong>Implements</strong> it in Swift and Metal as a library and a
+command-line tool for Apple silicon.</li>
+<li><strong>Measures</strong> it against four CPU sorts, including a
+parallel C++ sort on all CPU cores.</li>
+<li><strong>Proves</strong> it correct in the Lean theorem prover: first
+the specification, then the code itself.</li>
+</ol>
+<p>This article summarizes what was built, how well it works, and how we
+know it is right. For a tour of the source code, see <a href="https://github.com/rioffe/gpu-quicksort-revisited/blob/main/docs/ARCHITECTURE.md"><code>ARCHITECTURE.md</code></a>.
+The project was built with the spec-driven method of <a href="https://github.com/rioffe/speccheck">speccheck</a>, which <a href="https://rioffe.github.io/speccheck/introducing-speccheck.html">Introducing
+speccheck</a> explains.</p>
+<hr />
+<h2 id="at-a-glance">At a glance</h2>
+<table>
+<colgroup>
+<col style="width: 50%" />
+<col style="width: 50%" />
+</colgroup>
+<tbody>
+<tr>
+<td><strong>Speed</strong></td>
+<td>64 million 32-bit keys in <strong>43 ms</strong>, about <strong>1.55
+billion keys per second</strong> (Apple M5 Max)</td>
+</tr>
+<tr>
+<td><strong>vs. the CPU</strong></td>
+<td><strong>9×</strong> faster than parallel <code>std::sort</code> on
+18 cores; 24× faster than <code>std::sort</code>; 145× faster than
+Swift’s <code>Array.sort()</code></td>
+</tr>
+<tr>
+<td><strong>Key types</strong></td>
+<td><code>UInt32</code>, <code>Int32</code> and <code>Float</code>
+(floats in IEEE 754 total order)</td>
+</tr>
+<tr>
+<td><strong>Code</strong></td>
+<td>about 1,700 lines of Swift, Metal, C and C++, plus about 1,300 lines
+of tests (counted by <code>cloc</code>)</td>
+</tr>
+<tr>
+<td><strong>Specification</strong></td>
+<td><code>SPEC.md</code>, about 970 lines, with 128 numbered
+requirements and tests; reviewed in two rounds</td>
+</tr>
+<tr>
+<td><strong>Tests</strong></td>
+<td>56 tests; the <code>speccheck</code> conformance checker finds all
+128 ids realized and passing</td>
+</tr>
+<tr>
+<td><strong>Proofs</strong></td>
+<td>about 6,300 lines of Lean 4 (<code>cloc</code>) and over 300
+theorems, checked by Lean’s kernel</td>
+</tr>
+<tr>
+<td><strong>Proven against the code</strong></td>
+<td>52 of the 88 behavioral requirements; the rest are carried by named
+tests</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2 id="the-algorithm-in-brief">1. The algorithm in brief</h2>
+<p>Quicksort picks a <em>pivot</em>, puts the smaller keys on one side
+and the larger keys on the other, and repeats on each side. The
+difficulty on a GPU is keeping tens of thousands of threads busy. At the
+start there is only one big sequence, but at the end there are thousands
+of small ones.</p>
+<p>GPU-Quicksort solves this with two phases:</p>
+<p><img role="img" aria-label src="data:image/svg+xml;base64,PHN2ZyBpZD0ibXktc3ZnIiB3aWR0aD0iMTAwJSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIiB4bWxuczp4bGluaz0iaHR0cDovL3d3dy53My5vcmcvMTk5OS94bGluayIgc3R5bGU9Im1heC13aWR0aDogMTI0Ny41NXB4OyBiYWNrZ3JvdW5kLWNvbG9yOiB3aGl0ZTsiIHZpZXdCb3g9Ii04IC04IDEyNDcuNTQ2ODc1IDI4NyIgcm9sZT0iZ3JhcGhpY3MtZG9jdW1lbnQgZG9jdW1lbnQiIGFyaWEtcm9sZWRlc2NyaXB0aW9uPSJmbG93Y2hhcnQtdjIiPjxzdHlsZT4jbXktc3Zne2ZvbnQtZmFtaWx5OiJ0cmVidWNoZXQgbXMiLHZlcmRhbmEsYXJpYWwsc2Fucy1zZXJpZjtmb250LXNpemU6MTZweDtmaWxsOiMzMzM7fSNteS1zdmcgLmVycm9yLWljb257ZmlsbDojNTUyMjIyO30jbXktc3ZnIC5lcnJvci10ZXh0e2ZpbGw6IzU1MjIyMjtzdHJva2U6IzU1MjIyMjt9I215LXN2ZyAuZWRnZS10aGlja25lc3Mtbm9ybWFse3N0cm9rZS13aWR0aDoycHg7fSNteS1zdmcgLmVkZ2UtdGhpY2tuZXNzLXRoaWNre3N0cm9rZS13aWR0aDozLjVweDt9I215LXN2ZyAuZWRnZS1wYXR0ZXJuLXNvbGlke3N0cm9rZS1kYXNoYXJyYXk6MDt9I215LXN2ZyAuZWRnZS1wYXR0ZXJuLWRhc2hlZHtzdHJva2UtZGFzaGFycmF5OjM7fSNteS1zdmcgLmVkZ2UtcGF0dGVybi1kb3R0ZWR7c3Ryb2tlLWRhc2hhcnJheToyO30jbXktc3ZnIC5tYXJrZXJ7ZmlsbDojMzMzMzMzO3N0cm9rZTojMzMzMzMzO30jbXktc3ZnIC5tYXJrZXIuY3Jvc3N7c3Ryb2tlOiMzMzMzMzM7fSNteS1zdmcgc3Zne2ZvbnQtZmFtaWx5OiJ0cmVidWNoZXQgbXMiLHZlcmRhbmEsYXJpYWwsc2Fucy1zZXJpZjtmb250LXNpemU6MTZweDt9I215LXN2ZyAubGFiZWx7Zm9udC1mYW1pbHk6InRyZWJ1Y2hldCBtcyIsdmVyZGFuYSxhcmlhbCxzYW5zLXNlcmlmO2NvbG9yOiMzMzM7fSNteS1zdmcgLmNsdXN0ZXItbGFiZWwgdGV4dHtmaWxsOiMzMzM7fSNteS1zdmcgLmNsdXN0ZXItbGFiZWwgc3BhbiwjbXktc3ZnIHB7Y29sb3I6IzMzMzt9I215LXN2ZyAubGFiZWwgdGV4dCwjbXktc3ZnIHNwYW4sI215LXN2ZyBwe2ZpbGw6IzMzMztjb2xvcjojMzMzO30jbXktc3ZnIC5ub2RlIHJlY3QsI215LXN2ZyAubm9kZSBjaXJjbGUsI215LXN2ZyAubm9kZSBlbGxpcHNlLCNteS1zdmcgLm5vZGUgcG9seWdvbiwjbXktc3ZnIC5ub2RlIHBhdGh7ZmlsbDojRUNFQ0ZGO3N0cm9rZTojOTM3MERCO3N0cm9rZS13aWR0aDoxcHg7fSNteS1zdmcgLmZsb3djaGFydC1sYWJlbCB0ZXh0e3RleHQtYW5jaG9yOm1pZGRsZTt9I215LXN2ZyAubm9kZSAua2F0ZXggcGF0aHtmaWxsOiMwMDA7c3Ryb2tlOiMwMDA7c3Ryb2tlLXdpZHRoOjFweDt9I215LXN2ZyAubm9kZSAubGFiZWx7dGV4dC1hbGlnbjpjZW50ZXI7fSNteS1zdmcgLm5vZGUuY2xpY2thYmxle2N1cnNvcjpwb2ludGVyO30jbXktc3ZnIC5hcnJvd2hlYWRQYXRoe2ZpbGw6IzMzMzMzMzt9I215LXN2ZyAuZWRnZVBhdGggLnBhdGh7c3Ryb2tlOiMzMzMzMzM7c3Ryb2tlLXdpZHRoOjIuMHB4O30jbXktc3ZnIC5mbG93Y2hhcnQtbGlua3tzdHJva2U6IzMzMzMzMztmaWxsOm5vbmU7fSNteS1zdmcgLmVkZ2VMYWJlbHtiYWNrZ3JvdW5kLWNvbG9yOiNlOGU4ZTg7dGV4dC1hbGlnbjpjZW50ZXI7fSNteS1zdmcgLmVkZ2VMYWJlbCByZWN0e29wYWNpdHk6MC41O2JhY2tncm91bmQtY29sb3I6I2U4ZThlODtmaWxsOiNlOGU4ZTg7fSNteS1zdmcgLmxhYmVsQmtne2JhY2tncm91bmQtY29sb3I6cmdiYSgyMzIsIDIzMiwgMjMyLCAwLjUpO30jbXktc3ZnIC5jbHVzdGVyIHJlY3R7ZmlsbDojZmZmZmRlO3N0cm9rZTojYWFhYTMzO3N0cm9rZS13aWR0aDoxcHg7fSNteS1zdmcgLmNsdXN0ZXIgdGV4dHtmaWxsOiMzMzM7fSNteS1zdmcgLmNsdXN0ZXIgc3BhbiwjbXktc3ZnIHB7Y29sb3I6IzMzMzt9I215LXN2ZyBkaXYubWVybWFpZFRvb2x0aXB7cG9zaXRpb246YWJzb2x1dGU7dGV4dC1hbGlnbjpjZW50ZXI7bWF4LXdpZHRoOjIwMHB4O3BhZGRpbmc6MnB4O2ZvbnQtZmFtaWx5OiJ0cmVidWNoZXQgbXMiLHZlcmRhbmEsYXJpYWwsc2Fucy1zZXJpZjtmb250LXNpemU6MTJweDtiYWNrZ3JvdW5kOmhzbCg4MCwgMTAwJSwgOTYuMjc0NTA5ODAzOSUpO2JvcmRlcjoxcHggc29saWQgI2FhYWEzMztib3JkZXItcmFkaXVzOjJweDtwb2ludGVyLWV2ZW50czpub25lO3otaW5kZXg6MTAwO30jbXktc3ZnIC5mbG93Y2hhcnRUaXRsZVRleHR7dGV4dC1hbmNob3I6bWlkZGxlO2ZvbnQtc2l6ZToxOHB4O2ZpbGw6IzMzMzt9I215LXN2ZyA6cm9vdHstLW1lcm1haWQtZm9udC1mYW1pbHk6InRyZWJ1Y2hldCBtcyIsdmVyZGFuYSxhcmlhbCxzYW5zLXNlcmlmO308L3N0eWxlPjxnPjxtYXJrZXIgaWQ9Im15LXN2Z19mbG93Y2hhcnQtcG9pbnRFbmQiIGNsYXNzPSJtYXJrZXIgZmxvd2NoYXJ0IiB2aWV3Qm94PSIwIDAgMTAgMTAiIHJlZlg9IjYiIHJlZlk9IjUiIG1hcmtlclVuaXRzPSJ1c2VyU3BhY2VPblVzZSIgbWFya2VyV2lkdGg9IjEyIiBtYXJrZXJIZWlnaHQ9IjEyIiBvcmllbnQ9ImF1dG8iPjxwYXRoIGQ9Ik0gMCAwIEwgMTAgNSBMIDAgMTAgeiIgY2xhc3M9ImFycm93TWFya2VyUGF0aCIgc3R5bGU9InN0cm9rZS13aWR0aDogMTsgc3Ryb2tlLWRhc2hhcnJheTogMSwgMDsiLz48L21hcmtlcj48bWFya2VyIGlkPSJteS1zdmdfZmxvd2NoYXJ0LXBvaW50U3RhcnQiIGNsYXNzPSJtYXJrZXIgZmxvd2NoYXJ0IiB2aWV3Qm94PSIwIDAgMTAgMTAiIHJlZlg9IjQuNSIgcmVmWT0iNSIgbWFya2VyVW5pdHM9InVzZXJTcGFjZU9uVXNlIiBtYXJrZXJXaWR0aD0iMTIiIG1hcmtlckhlaWdodD0iMTIiIG9yaWVudD0iYXV0byI+PHBhdGggZD0iTSAwIDUgTCAxMCAxMCBMIDEwIDAgeiIgY2xhc3M9ImFycm93TWFya2VyUGF0aCIgc3R5bGU9InN0cm9rZS13aWR0aDogMTsgc3Ryb2tlLWRhc2hhcnJheTogMSwgMDsiLz48L21hcmtlcj48bWFya2VyIGlkPSJteS1zdmdfZmxvd2NoYXJ0LWNpcmNsZUVuZCIgY2xhc3M9Im1hcmtlciBmbG93Y2hhcnQiIHZpZXdCb3g9IjAgMCAxMCAxMCIgcmVmWD0iMTEiIHJlZlk9IjUiIG1hcmtlclVuaXRzPSJ1c2VyU3BhY2VPblVzZSIgbWFya2VyV2lkdGg9IjExIiBtYXJrZXJIZWlnaHQ9IjExIiBvcmllbnQ9ImF1dG8iPjxjaXJjbGUgY3g9IjUiIGN5PSI1IiByPSI1IiBjbGFzcz0iYXJyb3dNYXJrZXJQYXRoIiBzdHlsZT0ic3Ryb2tlLXdpZHRoOiAxOyBzdHJva2UtZGFzaGFycmF5OiAxLCAwOyIvPjwvbWFya2VyPjxtYXJrZXIgaWQ9Im15LXN2Z19mbG93Y2hhcnQtY2lyY2xlU3RhcnQiIGNsYXNzPSJtYXJrZXIgZmxvd2NoYXJ0IiB2aWV3Qm94PSIwIDAgMTAgMTAiIHJlZlg9Ii0xIiByZWZZPSI1IiBtYXJrZXJVbml0cz0idXNlclNwYWNlT25Vc2UiIG1hcmtlcldpZHRoPSIxMSIgbWFya2VySGVpZ2h0PSIxMSIgb3JpZW50PSJhdXRvIj48Y2lyY2xlIGN4PSI1IiBjeT0iNSIgcj0iNSIgY2xhc3M9ImFycm93TWFya2VyUGF0aCIgc3R5bGU9InN0cm9rZS13aWR0aDogMTsgc3Ryb2tlLWRhc2hhcnJheTogMSwgMDsiLz48L21hcmtlcj48bWFya2VyIGlkPSJteS1zdmdfZmxvd2NoYXJ0LWNyb3NzRW5kIiBjbGFzcz0ibWFya2VyIGNyb3NzIGZsb3djaGFydCIgdmlld0JveD0iMCAwIDExIDExIiByZWZYPSIxMiIgcmVmWT0iNS4yIiBtYXJrZXJVbml0cz0idXNlclNwYWNlT25Vc2UiIG1hcmtlcldpZHRoPSIxMSIgbWFya2VySGVpZ2h0PSIxMSIgb3JpZW50PSJhdXRvIj48cGF0aCBkPSJNIDEsMSBsIDksOSBNIDEwLDEgbCAtOSw5IiBjbGFzcz0iYXJyb3dNYXJrZXJQYXRoIiBzdHlsZT0ic3Ryb2tlLXdpZHRoOiAyOyBzdHJva2UtZGFzaGFycmF5OiAxLCAwOyIvPjwvbWFya2VyPjxtYXJrZXIgaWQ9Im15LXN2Z19mbG93Y2hhcnQtY3Jvc3NTdGFydCIgY2xhc3M9Im1hcmtlciBjcm9zcyBmbG93Y2hhcnQiIHZpZXdCb3g9IjAgMCAxMSAxMSIgcmVmWD0iLTEiIHJlZlk9IjUuMiIgbWFya2VyVW5pdHM9InVzZXJTcGFjZU9uVXNlIiBtYXJrZXJXaWR0aD0iMTEiIG1hcmtlckhlaWdodD0iMTEiIG9yaWVudD0iYXV0byI+PHBhdGggZD0iTSAxLDEgbCA5LDkgTSAxMCwxIGwgLTksOSIgY2xhc3M9ImFycm93TWFya2VyUGF0aCIgc3R5bGU9InN0cm9rZS13aWR0aDogMjsgc3Ryb2tlLWRhc2hhcnJheTogMSwgMDsiLz48L21hcmtlcj48ZyBjbGFzcz0icm9vdCI+PGcgY2xhc3M9ImNsdXN0ZXJzIi8+PGcgY2xhc3M9ImVkZ2VQYXRocyI+PHBhdGggZD0iTTEyMi4yMzQsMTM1LjVMMTI2LjQwMSwxMzUuNUMxMzAuNTY4LDEzNS41LDEzOC45MDEsMTM1LjUsMTQ2LjM1MSwxMzUuNUMxNTMuODAxLDEzNS41LDE2MC4zNjgsMTM1LjUsMTYzLjY1MSwxMzUuNUwxNjYuOTM0LDEzNS41IiBpZD0iTC1pbi1wMS0wIiBjbGFzcz0iZWRnZS10aGlja25lc3Mtbm9ybWFsIGVkZ2UtcGF0dGVybi1zb2xpZCBmbG93Y2hhcnQtbGluayBMUy1pbiBMRS1wMSIgc3R5bGU9ImZpbGw6bm9uZTsiIG1hcmtlci1lbmQ9InVybCgjbXktc3ZnX2Zsb3djaGFydC1wb2ludEVuZCkiLz48cGF0aCBkPSJNNDkyLjI2NiwxMzUuNUw1MTUuMTU5LDEzNS41QzUzOC4wNTIsMTM1LjUsNTgzLjgzOSwxMzUuNSw2MjguNzQyLDEzNS41QzY3My42NDUsMTM1LjUsNzE3LjY2NSwxMzUuNSw3MzkuNjc0LDEzNS41TDc2MS42ODQsMTM1LjUiIGlkPSJMLXAxLXAyLTAiIGNsYXNzPSJlZGdlLXRoaWNrbmVzcy1ub3JtYWwgZWRnZS1wYXR0ZXJuLXNvbGlkIGZsb3djaGFydC1saW5rIExTLXAxIExFLXAyIiBzdHlsZT0iZmlsbDpub25lOyIgbWFya2VyLWVuZD0idXJsKCNteS1zdmdfZmxvd2NoYXJ0LXBvaW50RW5kKSIvPjxwYXRoIGQ9Ik0xMDc2Ljc5NywxMzUuNUwxMDgwLjk2NCwxMzUuNUMxMDg1LjEzLDEzNS41LDEwOTMuNDY0LDEzNS41LDExMDAuOTE0LDEzNS41QzExMDguMzY0LDEzNS41LDExMTQuOTMsMTM1LjUsMTExOC4yMTQsMTM1LjVMMTEyMS40OTcsMTM1LjUiIGlkPSJMLXAyLW91dC0wIiBjbGFzcz0iZWRnZS10aGlja25lc3Mtbm9ybWFsIGVkZ2UtcGF0dGVybi1zb2xpZCBmbG93Y2hhcnQtbGluayBMUy1wMiBMRS1vdXQiIHN0eWxlPSJmaWxsOm5vbmU7IiBtYXJrZXItZW5kPSJ1cmwoI215LXN2Z19mbG93Y2hhcnQtcG9pbnRFbmQpIi8+PC9nPjxnIGNsYXNzPSJlZGdlTGFiZWxzIj48ZyBjbGFzcz0iZWRnZUxhYmVsIj48ZyBjbGFzcz0ibGFiZWwiIHRyYW5zZm9ybT0idHJhbnNsYXRlKDAsIDApIj48Zm9yZWlnbk9iamVjdCB3aWR0aD0iMCIgaGVpZ2h0PSIwIj48ZGl2IHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8xOTk5L3hodG1sIiBzdHlsZT0iZGlzcGxheTogaW5saW5lLWJsb2NrOyB3aGl0ZS1zcGFjZTogbm93cmFwOyI+PHNwYW4gY2xhc3M9ImVkZ2VMYWJlbCI+PC9zcGFuPjwvZGl2PjwvZm9yZWlnbk9iamVjdD48L2c+PC9nPjxnIGNsYXNzPSJlZGdlTGFiZWwiIHRyYW5zZm9ybT0idHJhbnNsYXRlKDYyOS42MjUsIDEzNS41KSI+PGcgY2xhc3M9ImxhYmVsIiB0cmFuc2Zvcm09InRyYW5zbGF0ZSgtMTEyLjM1OTM3NSwgLTkuNSkiPjxmb3JlaWduT2JqZWN0IHdpZHRoPSIyMjQuNzE4NzUiIGhlaWdodD0iMTkiPjxkaXYgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzE5OTkveGh0bWwiIHN0eWxlPSJkaXNwbGF5OiBpbmxpbmUtYmxvY2s7IHdoaXRlLXNwYWNlOiBub3dyYXA7Ij48c3BhbiBjbGFzcz0iZWRnZUxhYmVsIj5lbm91Z2ggaW5kZXBlbmRlbnQgc2VxdWVuY2VzPC9zcGFuPjwvZGl2PjwvZm9yZWlnbk9iamVjdD48L2c+PC9nPjxnIGNsYXNzPSJlZGdlTGFiZWwiPjxnIGNsYXNzPSJsYWJlbCIgdHJhbnNmb3JtPSJ0cmFuc2xhdGUoMCwgMCkiPjxmb3JlaWduT2JqZWN0IHdpZHRoPSIwIiBoZWlnaHQ9IjAiPjxkaXYgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzE5OTkveGh0bWwiIHN0eWxlPSJkaXNwbGF5OiBpbmxpbmUtYmxvY2s7IHdoaXRlLXNwYWNlOiBub3dyYXA7Ij48c3BhbiBjbGFzcz0iZWRnZUxhYmVsIj48L3NwYW4+PC9kaXY+PC9mb3JlaWduT2JqZWN0PjwvZz48L2c+PC9nPjxnIGNsYXNzPSJub2RlcyI+PGcgY2xhc3M9InJvb3QiIHRyYW5zZm9ybT0idHJhbnNsYXRlKDc1OS40ODQzNzUsIDM0KSI+PGcgY2xhc3M9ImNsdXN0ZXJzIj48ZyBjbGFzcz0iY2x1c3RlciBkZWZhdWx0IGZsb3djaGFydC1sYWJlbCIgaWQ9InAyIj48cmVjdCBzdHlsZT0iIiByeD0iMCIgcnk9IjAiIHg9IjgiIHk9IjgiIHdpZHRoPSIzMDkuODEyNSIgaGVpZ2h0PSIxODciLz48ZyBjbGFzcz0iY2x1c3Rlci1sYWJlbCIgdHJhbnNmb3JtPSJ0cmFuc2xhdGUoMTEuODY3MTg3NSwgOCkiPjxmb3JlaWduT2JqZWN0IHdpZHRoPSIzMDIuMDc4MTI1IiBoZWlnaHQ9IjE5Ij48ZGl2IHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8xOTk5L3hodG1sIiBzdHlsZT0iZGlzcGxheTogaW5saW5lLWJsb2NrOyB3aGl0ZS1zcGFjZTogbm93cmFwOyI+PHNwYW4gY2xhc3M9Im5vZGVMYWJlbCI+UGhhc2UgdHdvOiBvbmUgdGhyZWFkZ3JvdXAgcGVyIHNlcXVlbmNlPC9zcGFuPjwvZGl2PjwvZm9yZWlnbk9iamVjdD48L2c+PC9nPjwvZz48ZyBjbGFzcz0iZWRnZVBhdGhzIj48cGF0aCBkPSJNMTYyLjkwNiw2N0wxNjIuOTA2LDcxLjE2N0MxNjIuOTA2LDc1LjMzMywxNjIuOTA2LDgzLjY2NywxNjIuOTA2LDkxLjExN0MxNjIuOTA2LDk4LjU2NywxNjIuOTA2LDEwNS4xMzMsMTYyLjkwNiwxMDguNDE3TDE2Mi45MDYsMTExLjciIGlkPSJMLWQtZS0wIiBjbGFzcz0iZWRnZS10aGlja25lc3Mtbm9ybWFsIGVkZ2UtcGF0dGVybi1zb2xpZCBmbG93Y2hhcnQtbGluayBMUy1kIExFLWUiIHN0eWxlPSJmaWxsOm5vbmU7IiBtYXJrZXItZW5kPSJ1cmwoI215LXN2Z19mbG93Y2hhcnQtcG9pbnRFbmQpIi8+PC9nPjxnIGNsYXNzPSJlZGdlTGFiZWxzIj48ZyBjbGFzcz0iZWRnZUxhYmVsIj48ZyBjbGFzcz0ibGFiZWwiIHRyYW5zZm9ybT0idHJhbnNsYXRlKDAsIDApIj48Zm9yZWlnbk9iamVjdCB3aWR0aD0iMCIgaGVpZ2h0PSIwIj48ZGl2IHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8xOTk5L3hodG1sIiBzdHlsZT0iZGlzcGxheTogaW5saW5lLWJsb2NrOyB3aGl0ZS1zcGFjZTogbm93cmFwOyI+PHNwYW4gY2xhc3M9ImVkZ2VMYWJlbCI+PC9zcGFuPjwvZGl2PjwvZm9yZWlnbk9iamVjdD48L2c+PC9nPjwvZz48ZyBjbGFzcz0ibm9kZXMiPjxnIGNsYXNzPSJub2RlIGRlZmF1bHQgZGVmYXVsdCBmbG93Y2hhcnQtbGFiZWwiIGlkPSJmbG93Y2hhcnQtZS05IiBkYXRhLW5vZGU9InRydWUiIGRhdGEtaWQ9ImUiIHRyYW5zZm9ybT0idHJhbnNsYXRlKDE2Mi45MDYyNSwgMTQzLjUpIj48cmVjdCBjbGFzcz0iYmFzaWMgbGFiZWwtY29udGFpbmVyIiBzdHlsZT0iIiByeD0iMCIgcnk9IjAiIHg9Ii05Ni4zOTA2MjUiIHk9Ii0yNi41IiB3aWR0aD0iMTkyLjc4MTI1IiBoZWlnaHQ9IjUzIi8+PGcgY2xhc3M9ImxhYmVsIiBzdHlsZT0iIiB0cmFuc2Zvcm09InRyYW5zbGF0ZSgtODguODkwNjI1LCAtMTkpIj48cmVjdC8+PGZvcmVpZ25PYmplY3Qgd2lkdGg9IjE3Ny43ODEyNSIgaGVpZ2h0PSIzOCI+PGRpdiB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMTk5OS94aHRtbCIgc3R5bGU9ImRpc3BsYXk6IGlubGluZS1ibG9jazsgd2hpdGUtc3BhY2U6IG5vd3JhcDsiPjxzcGFuIGNsYXNzPSJub2RlTGFiZWwiPmJpdG9uaWMgc29ydCBvbmNlIGEgcGllY2U8YnIgLz5maXRzIGluIG9uLWNoaXAgbWVtb3J5PC9zcGFuPjwvZGl2PjwvZm9yZWlnbk9iamVjdD48L2c+PC9nPjxnIGNsYXNzPSJub2RlIGRlZmF1bHQgZGVmYXVsdCBmbG93Y2hhcnQtbGFiZWwiIGlkPSJmbG93Y2hhcnQtZC04IiBkYXRhLW5vZGU9InRydWUiIGRhdGEtaWQ9ImQiIHRyYW5zZm9ybT0idHJhbnNsYXRlKDE2Mi45MDYyNSwgNTApIj48cmVjdCBjbGFzcz0iYmFzaWMgbGFiZWwtY29udGFpbmVyIiBzdHlsZT0iIiByeD0iMCIgcnk9IjAiIHg9Ii0xMTkuOTA2MjUiIHk9Ii0xNyIgd2lkdGg9IjIzOS44MTI1IiBoZWlnaHQ9IjM0Ii8+PGcgY2xhc3M9ImxhYmVsIiBzdHlsZT0iIiB0cmFuc2Zvcm09InRyYW5zbGF0ZSgtMTEyLjQwNjI1LCAtOS41KSI+PHJlY3QvPjxmb3JlaWduT2JqZWN0IHdpZHRoPSIyMjQuODEyNSIgaGVpZ2h0PSIxOSI+PGRpdiB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMTk5OS94aHRtbCIgc3R5bGU9ImRpc3BsYXk6IGlubGluZS1ibG9jazsgd2hpdGUtc3BhY2U6IG5vd3JhcDsiPjxzcGFuIGNsYXNzPSJub2RlTGFiZWwiPnF1aWNrc29ydCB3aXRoIGFuIGV4cGxpY2l0IHN0YWNrPC9zcGFuPjwvZGl2PjwvZm9yZWlnbk9iamVjdD48L2c+PC9nPjwvZz48L2c+PGcgY2xhc3M9InJvb3QiIHRyYW5zZm9ybT0idHJhbnNsYXRlKDE3MC4yNSwgLTgpIj48ZyBjbGFzcz0iY2x1c3RlcnMiPjxnIGNsYXNzPSJjbHVzdGVyIGRlZmF1bHQgZmxvd2NoYXJ0LWxhYmVsIiBpZD0icDEiPjxyZWN0IHN0eWxlPSIiIHJ4PSIwIiByeT0iMCIgeD0iMi40ODQzNzUiIHk9IjgiIHdpZHRoPSIzMjAuMDMxMjUiIGhlaWdodD0iMjcxIi8+PGcgY2xhc3M9ImNsdXN0ZXItbGFiZWwiIHRyYW5zZm9ybT0idHJhbnNsYXRlKDIuNDg0Mzc1LCA4KSI+PGZvcmVpZ25PYmplY3Qgd2lkdGg9IjMyMC4wMzEyNSIgaGVpZ2h0PSIxOSI+PGRpdiB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMTk5OS94aHRtbCIgc3R5bGU9ImRpc3BsYXk6IGlubGluZS1ibG9jazsgd2hpdGUtc3BhY2U6IG5vd3JhcDsiPjxzcGFuIGNsYXNzPSJub2RlTGFiZWwiPlBoYXNlIG9uZTogbWFueSB0aHJlYWRncm91cHMgcGVyIHNlcXVlbmNlPC9zcGFuPjwvZGl2PjwvZm9yZWlnbk9iamVjdD48L2c+PC9nPjwvZz48ZyBjbGFzcz0iZWRnZVBhdGhzIj48cGF0aCBkPSJNMTYyLjUsNjdMMTYyLjUsNzEuMTY3QzE2Mi41LDc1LjMzMywxNjIuNSw4My42NjcsMTYyLjUsOTEuMTE3QzE2Mi41LDk4LjU2NywxNjIuNSwxMDUuMTMzLDE2Mi41LDEwOC40MTdMMTYyLjUsMTExLjciIGlkPSJMLWEtYi0wIiBjbGFzcz0iZWRnZS10aGlja25lc3Mtbm9ybWFsIGVkZ2UtcGF0dGVybi1zb2xpZCBmbG93Y2hhcnQtbGluayBMUy1hIExFLWIiIHN0eWxlPSJmaWxsOm5vbmU7IiBtYXJrZXItZW5kPSJ1cmwoI215LXN2Z19mbG93Y2hhcnQtcG9pbnRFbmQpIi8+PHBhdGggZD0iTTE2Mi41LDE1MUwxNjIuNSwxNTUuMTY3QzE2Mi41LDE1OS4zMzMsMTYyLjUsMTY3LjY2NywxNjIuNSwxNzUuMTE3QzE2Mi41LDE4Mi41NjcsMTYyLjUsMTg5LjEzMywxNjIuNSwxOTIuNDE3TDE2Mi41LDE5NS43IiBpZD0iTC1iLWMtMCIgY2xhc3M9ImVkZ2UtdGhpY2tuZXNzLW5vcm1hbCBlZGdlLXBhdHRlcm4tc29saWQgZmxvd2NoYXJ0LWxpbmsgTFMtYiBMRS1jIiBzdHlsZT0iZmlsbDpub25lOyIgbWFya2VyLWVuZD0idXJsKCNteS1zdmdfZmxvd2NoYXJ0LXBvaW50RW5kKSIvPjwvZz48ZyBjbGFzcz0iZWRnZUxhYmVscyI+PGcgY2xhc3M9ImVkZ2VMYWJlbCI+PGcgY2xhc3M9ImxhYmVsIiB0cmFuc2Zvcm09InRyYW5zbGF0ZSgwLCAwKSI+PGZvcmVpZ25PYmplY3Qgd2lkdGg9IjAiIGhlaWdodD0iMCI+PGRpdiB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMTk5OS94aHRtbCIgc3R5bGU9ImRpc3BsYXk6IGlubGluZS1ibG9jazsgd2hpdGUtc3BhY2U6IG5vd3JhcDsiPjxzcGFuIGNsYXNzPSJlZGdlTGFiZWwiPjwvc3Bhbj48L2Rpdj48L2ZvcmVpZ25PYmplY3Q+PC9nPjwvZz48ZyBjbGFzcz0iZWRnZUxhYmVsIj48ZyBjbGFzcz0ibGFiZWwiIHRyYW5zZm9ybT0idHJhbnNsYXRlKDAsIDApIj48Zm9yZWlnbk9iamVjdCB3aWR0aD0iMCIgaGVpZ2h0PSIwIj48ZGl2IHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8xOTk5L3hodG1sIiBzdHlsZT0iZGlzcGxheTogaW5saW5lLWJsb2NrOyB3aGl0ZS1zcGFjZTogbm93cmFwOyI+PHNwYW4gY2xhc3M9ImVkZ2VMYWJlbCI+PC9zcGFuPjwvZGl2PjwvZm9yZWlnbk9iamVjdD48L2c+PC9nPjwvZz48ZyBjbGFzcz0ibm9kZXMiPjxnIGNsYXNzPSJub2RlIGRlZmF1bHQgZGVmYXVsdCBmbG93Y2hhcnQtbGFiZWwiIGlkPSJmbG93Y2hhcnQtYi0zIiBkYXRhLW5vZGU9InRydWUiIGRhdGEtaWQ9ImIiIHRyYW5zZm9ybT0idHJhbnNsYXRlKDE2Mi41LCAxMzQpIj48cmVjdCBjbGFzcz0iYmFzaWMgbGFiZWwtY29udGFpbmVyIiBzdHlsZT0iIiByeD0iMCIgcnk9IjAiIHg9Ii0xMTMuODEyNSIgeT0iLTE3IiB3aWR0aD0iMjI3LjYyNSIgaGVpZ2h0PSIzNCIvPjxnIGNsYXNzPSJsYWJlbCIgc3R5bGU9IiIgdHJhbnNmb3JtPSJ0cmFuc2xhdGUoLTEwNi4zMTI1LCAtOS41KSI+PHJlY3QvPjxmb3JlaWduT2JqZWN0IHdpZHRoPSIyMTIuNjI1IiBoZWlnaHQ9IjE5Ij48ZGl2IHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8xOTk5L3hodG1sIiBzdHlsZT0iZGlzcGxheTogaW5saW5lLWJsb2NrOyB3aGl0ZS1zcGFjZTogbm93cmFwOyI+PHNwYW4gY2xhc3M9Im5vZGVMYWJlbCI+cGFydGl0aW9uIGFsbCBibG9ja3MgaW4gcGFyYWxsZWw8L3NwYW4+PC9kaXY+PC9mb3JlaWduT2JqZWN0PjwvZz48L2c+PGcgY2xhc3M9Im5vZGUgZGVmYXVsdCBkZWZhdWx0IGZsb3djaGFydC1sYWJlbCIgaWQ9ImZsb3djaGFydC1hLTIiIGRhdGEtbm9kZT0idHJ1ZSIgZGF0YS1pZD0iYSIgdHJhbnNmb3JtPSJ0cmFuc2xhdGUoMTYyLjUsIDUwKSI+PHJlY3QgY2xhc3M9ImJhc2ljIGxhYmVsLWNvbnRhaW5lciIgc3R5bGU9IiIgcng9IjAiIHJ5PSIwIiB4PSItMTE5LjUiIHk9Ii0xNyIgd2lkdGg9IjIzOSIgaGVpZ2h0PSIzNCIvPjxnIGNsYXNzPSJsYWJlbCIgc3R5bGU9IiIgdHJhbnNmb3JtPSJ0cmFuc2xhdGUoLTExMiwgLTkuNSkiPjxyZWN0Lz48Zm9yZWlnbk9iamVjdCB3aWR0aD0iMjI0IiBoZWlnaHQ9IjE5Ij48ZGl2IHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8xOTk5L3hodG1sIiBzdHlsZT0iZGlzcGxheTogaW5saW5lLWJsb2NrOyB3aGl0ZS1zcGFjZTogbm93cmFwOyI+PHNwYW4gY2xhc3M9Im5vZGVMYWJlbCI+c3BsaXQgZWFjaCBzZXF1ZW5jZSBpbnRvIGJsb2Nrczwvc3Bhbj48L2Rpdj48L2ZvcmVpZ25PYmplY3Q+PC9nPjwvZz48ZyBjbGFzcz0ibm9kZSBkZWZhdWx0IGRlZmF1bHQgZmxvd2NoYXJ0LWxhYmVsIiBpZD0iZmxvd2NoYXJ0LWMtNSIgZGF0YS1ub2RlPSJ0cnVlIiBkYXRhLWlkPSJjIiB0cmFuc2Zvcm09InRyYW5zbGF0ZSgxNjIuNSwgMjI3LjUpIj48cmVjdCBjbGFzcz0iYmFzaWMgbGFiZWwtY29udGFpbmVyIiBzdHlsZT0iIiByeD0iMCIgcnk9IjAiIHg9Ii05NS4wMTU2MjUiIHk9Ii0yNi41IiB3aWR0aD0iMTkwLjAzMTI1IiBoZWlnaHQ9IjUzIi8+PGcgY2xhc3M9ImxhYmVsIiBzdHlsZT0iIiB0cmFuc2Zvcm09InRyYW5zbGF0ZSgtODcuNTE1NjI1LCAtMTkpIj48cmVjdC8+PGZvcmVpZ25PYmplY3Qgd2lkdGg9IjE3NS4wMzEyNSIgaGVpZ2h0PSIzOCI+PGRpdiB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMTk5OS94aHRtbCIgc3R5bGU9ImRpc3BsYXk6IGlubGluZS1ibG9jazsgd2hpdGUtc3BhY2U6IG5vd3JhcDsiPjxzcGFuIGNsYXNzPSJub2RlTGFiZWwiPmF0b21pYyBjb3VudGVycyBkZWNpZGU8YnIgLz53aGVyZSBlYWNoIGJsb2NrIHdyaXRlczwvc3Bhbj48L2Rpdj48L2ZvcmVpZ25PYmplY3Q+PC9nPjwvZz48L2c+PC9nPjxnIGNsYXNzPSJub2RlIGRlZmF1bHQgZGVmYXVsdCBmbG93Y2hhcnQtbGFiZWwiIGlkPSJmbG93Y2hhcnQtaW4tMCIgZGF0YS1ub2RlPSJ0cnVlIiBkYXRhLWlkPSJpbiIgdHJhbnNmb3JtPSJ0cmFuc2xhdGUoNjEuMTE3MTg3NSwgMTM1LjUpIj48cmVjdCBzdHlsZT0iIiByeD0iMTciIHJ5PSIxNyIgeD0iLTYxLjExNzE4NzUiIHk9Ii0xNyIgd2lkdGg9IjEyMi4yMzQzNzUiIGhlaWdodD0iMzQiLz48ZyBjbGFzcz0ibGFiZWwiIHN0eWxlPSIiIHRyYW5zZm9ybT0idHJhbnNsYXRlKC00OS4zNjcxODc1LCAtOS41KSI+PHJlY3QvPjxmb3JlaWduT2JqZWN0IHdpZHRoPSI5OC43MzQzNzUiIGhlaWdodD0iMTkiPjxkaXYgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzE5OTkveGh0bWwiIHN0eWxlPSJkaXNwbGF5OiBpbmxpbmUtYmxvY2s7IHdoaXRlLXNwYWNlOiBub3dyYXA7Ij48c3BhbiBjbGFzcz0ibm9kZUxhYmVsIj51bnNvcnRlZCBrZXlzPC9zcGFuPjwvZGl2PjwvZm9yZWlnbk9iamVjdD48L2c+PC9nPjxnIGNsYXNzPSJub2RlIGRlZmF1bHQgZGVmYXVsdCBmbG93Y2hhcnQtbGFiZWwiIGlkPSJmbG93Y2hhcnQtb3V0LTExIiBkYXRhLW5vZGU9InRydWUiIGRhdGEtaWQ9Im91dCIgdHJhbnNmb3JtPSJ0cmFuc2xhdGUoMTE3OS4xNzE4NzUsIDEzNS41KSI+PHJlY3Qgc3R5bGU9IiIgcng9IjE3IiByeT0iMTciIHg9Ii01Mi4zNzUiIHk9Ii0xNyIgd2lkdGg9IjEwNC43NSIgaGVpZ2h0PSIzNCIvPjxnIGNsYXNzPSJsYWJlbCIgc3R5bGU9IiIgdHJhbnNmb3JtPSJ0cmFuc2xhdGUoLTQwLjYyNSwgLTkuNSkiPjxyZWN0Lz48Zm9yZWlnbk9iamVjdCB3aWR0aD0iODEuMjUiIGhlaWdodD0iMTkiPjxkaXYgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzE5OTkveGh0bWwiIHN0eWxlPSJkaXNwbGF5OiBpbmxpbmUtYmxvY2s7IHdoaXRlLXNwYWNlOiBub3dyYXA7Ij48c3BhbiBjbGFzcz0ibm9kZUxhYmVsIj5zb3J0ZWQga2V5czwvc3Bhbj48L2Rpdj48L2ZvcmVpZ25PYmplY3Q+PC9nPjwvZz48L2c+PC9nPjwvZz48L3N2Zz4=" alt /></p>
+<ul>
+<li><strong>Phase one</strong> handles the few large sequences at the
+start. Many threadgroups work on the same sequence. Each counts its
+keys, and <strong>one atomic operation per side per threadgroup</strong>
+reserves room for its output. This is the paper’s key idea:
+synchronization cost is per threadgroup, not per key.</li>
+<li><strong>Phase two</strong> starts once there are enough sequences to
+fill the GPU. Each threadgroup finishes one sequence on its own. It uses
+fast on-chip memory, and a stack in place of recursion, which GPUs
+lack.</li>
+</ul>
+<hr />
+<h2 id="specification-first">2. Specification first</h2>
+<p>Before any code was written, the paper was turned into a
+specification, <code>SPEC.md</code>. It is not a summary of the paper.
+It is a contract: every behavior the implementation must have gets a
+numbered id, for example:</p>
+<ul>
+<li><code>R-09</code>: one atomic per side per threadgroup;</li>
+<li><code>K-08</code>: the phase-two stack has 32 entries;</li>
+<li><code>E-10</code>: what happens if the stack would overflow.</li>
+</ul>
+<p>Each id also names the test that will check it.</p>
+<p>The id families cover different kinds of promises:</p>
+<table>
+<colgroup>
+<col style="width: 33%" />
+<col style="width: 33%" />
+<col style="width: 33%" />
+</colgroup>
+<thead>
+<tr>
+<th>Family</th>
+<th>Covers</th>
+<th>Example</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>R</strong> — requirements</td>
+<td>what the algorithm does</td>
+<td>the pivot gap is written straight into the output buffer</td>
+</tr>
+<tr>
+<td><strong>C</strong> — contracts</td>
+<td>exact interfaces and data layouts</td>
+<td><code>SequenceRecord</code> is 40 bytes, with these fields</td>
+</tr>
+<tr>
+<td><strong>I</strong> — invariants</td>
+<td>what must always hold</td>
+<td>every index is written with its final value exactly once</td>
+</tr>
+<tr>
+<td><strong>K</strong> — constants</td>
+<td>pinned numbers and formulas</td>
+<td>the default-parameter formula <code>optp</code></td>
+</tr>
+<tr>
+<td><strong>E</strong> — edge cases</td>
+<td>unusual inputs</td>
+<td>an empty array; all-equal keys; too many keys</td>
+</tr>
+<tr>
+<td><strong>T</strong> — tests</td>
+<td>how each of the above is checked</td>
+<td>run <code>verify</code> on every distribution and key type</td>
+</tr>
+</tbody>
+</table>
+<p>The specification then went through <strong>two rounds of independent
+review</strong>. They produced 30 findings (F-001 to F-030), from
+blocking gaps (how the tuning table gets bootstrapped on a new GPU) down
+to wording. Each was fixed in a new version of the spec. The spec is now
+at v0.5.</p>
+<p>Why spend the effort up front? The spec gives every later step
+something to be checked against. The tests cite spec ids, and the
+conformance checker matches them. The Lean proofs are stated in terms of
+the spec. Without a precise spec, “correct” would have no fixed
+meaning.</p>
+<hr />
+<h2 id="building-it">3. Building it</h2>
+<p>The implementation followed a plan of seven waves. Each wave ended
+with the code building and its tests green:</p>
+<p><img role="img" aria-label src="data:image/svg+xml;base64,PHN2ZyBpZD0ibXktc3ZnIiB3aWR0aD0iMTAwJSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIiB4bWxuczp4bGluaz0iaHR0cDovL3d3dy53My5vcmcvMTk5OS94bGluayIgc3R5bGU9Im1heC13aWR0aDogMTEwNi42OXB4OyBiYWNrZ3JvdW5kLWNvbG9yOiB3aGl0ZTsiIHZpZXdCb3g9Ii04IC04IDExMDYuNjg3NSA4OCIgcm9sZT0iZ3JhcGhpY3MtZG9jdW1lbnQgZG9jdW1lbnQiIGFyaWEtcm9sZWRlc2NyaXB0aW9uPSJmbG93Y2hhcnQtdjIiPjxzdHlsZT4jbXktc3Zne2ZvbnQtZmFtaWx5OiJ0cmVidWNoZXQgbXMiLHZlcmRhbmEsYXJpYWwsc2Fucy1zZXJpZjtmb250LXNpemU6MTZweDtmaWxsOiMzMzM7fSNteS1zdmcgLmVycm9yLWljb257ZmlsbDojNTUyMjIyO30jbXktc3ZnIC5lcnJvci10ZXh0e2ZpbGw6IzU1MjIyMjtzdHJva2U6IzU1MjIyMjt9I215LXN2ZyAuZWRnZS10aGlja25lc3Mtbm9ybWFse3N0cm9rZS13aWR0aDoycHg7fSNteS1zdmcgLmVkZ2UtdGhpY2tuZXNzLXRoaWNre3N0cm9rZS13aWR0aDozLjVweDt9I215LXN2ZyAuZWRnZS1wYXR0ZXJuLXNvbGlke3N0cm9rZS1kYXNoYXJyYXk6MDt9I215LXN2ZyAuZWRnZS1wYXR0ZXJuLWRhc2hlZHtzdHJva2UtZGFzaGFycmF5OjM7fSNteS1zdmcgLmVkZ2UtcGF0dGVybi1kb3R0ZWR7c3Ryb2tlLWRhc2hhcnJheToyO30jbXktc3ZnIC5tYXJrZXJ7ZmlsbDojMzMzMzMzO3N0cm9rZTojMzMzMzMzO30jbXktc3ZnIC5tYXJrZXIuY3Jvc3N7c3Ryb2tlOiMzMzMzMzM7fSNteS1zdmcgc3Zne2ZvbnQtZmFtaWx5OiJ0cmVidWNoZXQgbXMiLHZlcmRhbmEsYXJpYWwsc2Fucy1zZXJpZjtmb250LXNpemU6MTZweDt9I215LXN2ZyAubGFiZWx7Zm9udC1mYW1pbHk6InRyZWJ1Y2hldCBtcyIsdmVyZGFuYSxhcmlhbCxzYW5zLXNlcmlmO2NvbG9yOiMzMzM7fSNteS1zdmcgLmNsdXN0ZXItbGFiZWwgdGV4dHtmaWxsOiMzMzM7fSNteS1zdmcgLmNsdXN0ZXItbGFiZWwgc3BhbiwjbXktc3ZnIHB7Y29sb3I6IzMzMzt9I215LXN2ZyAubGFiZWwgdGV4dCwjbXktc3ZnIHNwYW4sI215LXN2ZyBwe2ZpbGw6IzMzMztjb2xvcjojMzMzO30jbXktc3ZnIC5ub2RlIHJlY3QsI215LXN2ZyAubm9kZSBjaXJjbGUsI215LXN2ZyAubm9kZSBlbGxpcHNlLCNteS1zdmcgLm5vZGUgcG9seWdvbiwjbXktc3ZnIC5ub2RlIHBhdGh7ZmlsbDojRUNFQ0ZGO3N0cm9rZTojOTM3MERCO3N0cm9rZS13aWR0aDoxcHg7fSNteS1zdmcgLmZsb3djaGFydC1sYWJlbCB0ZXh0e3RleHQtYW5jaG9yOm1pZGRsZTt9I215LXN2ZyAubm9kZSAua2F0ZXggcGF0aHtmaWxsOiMwMDA7c3Ryb2tlOiMwMDA7c3Ryb2tlLXdpZHRoOjFweDt9I215LXN2ZyAubm9kZSAubGFiZWx7dGV4dC1hbGlnbjpjZW50ZXI7fSNteS1zdmcgLm5vZGUuY2xpY2thYmxle2N1cnNvcjpwb2ludGVyO30jbXktc3ZnIC5hcnJvd2hlYWRQYXRoe2ZpbGw6IzMzMzMzMzt9I215LXN2ZyAuZWRnZVBhdGggLnBhdGh7c3Ryb2tlOiMzMzMzMzM7c3Ryb2tlLXdpZHRoOjIuMHB4O30jbXktc3ZnIC5mbG93Y2hhcnQtbGlua3tzdHJva2U6IzMzMzMzMztmaWxsOm5vbmU7fSNteS1zdmcgLmVkZ2VMYWJlbHtiYWNrZ3JvdW5kLWNvbG9yOiNlOGU4ZTg7dGV4dC1hbGlnbjpjZW50ZXI7fSNteS1zdmcgLmVkZ2VMYWJlbCByZWN0e29wYWNpdHk6MC41O2JhY2tncm91bmQtY29sb3I6I2U4ZThlODtmaWxsOiNlOGU4ZTg7fSNteS1zdmcgLmxhYmVsQmtne2JhY2tncm91bmQtY29sb3I6cmdiYSgyMzIsIDIzMiwgMjMyLCAwLjUpO30jbXktc3ZnIC5jbHVzdGVyIHJlY3R7ZmlsbDojZmZmZmRlO3N0cm9rZTojYWFhYTMzO3N0cm9rZS13aWR0aDoxcHg7fSNteS1zdmcgLmNsdXN0ZXIgdGV4dHtmaWxsOiMzMzM7fSNteS1zdmcgLmNsdXN0ZXIgc3BhbiwjbXktc3ZnIHB7Y29sb3I6IzMzMzt9I215LXN2ZyBkaXYubWVybWFpZFRvb2x0aXB7cG9zaXRpb246YWJzb2x1dGU7dGV4dC1hbGlnbjpjZW50ZXI7bWF4LXdpZHRoOjIwMHB4O3BhZGRpbmc6MnB4O2ZvbnQtZmFtaWx5OiJ0cmVidWNoZXQgbXMiLHZlcmRhbmEsYXJpYWwsc2Fucy1zZXJpZjtmb250LXNpemU6MTJweDtiYWNrZ3JvdW5kOmhzbCg4MCwgMTAwJSwgOTYuMjc0NTA5ODAzOSUpO2JvcmRlcjoxcHggc29saWQgI2FhYWEzMztib3JkZXItcmFkaXVzOjJweDtwb2ludGVyLWV2ZW50czpub25lO3otaW5kZXg6MTAwO30jbXktc3ZnIC5mbG93Y2hhcnRUaXRsZVRleHR7dGV4dC1hbmNob3I6bWlkZGxlO2ZvbnQtc2l6ZToxOHB4O2ZpbGw6IzMzMzt9I215LXN2ZyA6cm9vdHstLW1lcm1haWQtZm9udC1mYW1pbHk6InRyZWJ1Y2hldCBtcyIsdmVyZGFuYSxhcmlhbCxzYW5zLXNlcmlmO308L3N0eWxlPjxnPjxtYXJrZXIgaWQ9Im15LXN2Z19mbG93Y2hhcnQtcG9pbnRFbmQiIGNsYXNzPSJtYXJrZXIgZmxvd2NoYXJ0IiB2aWV3Qm94PSIwIDAgMTAgMTAiIHJlZlg9IjYiIHJlZlk9IjUiIG1hcmtlclVuaXRzPSJ1c2VyU3BhY2VPblVzZSIgbWFya2VyV2lkdGg9IjEyIiBtYXJrZXJIZWlnaHQ9IjEyIiBvcmllbnQ9ImF1dG8iPjxwYXRoIGQ9Ik0gMCAwIEwgMTAgNSBMIDAgMTAgeiIgY2xhc3M9ImFycm93TWFya2VyUGF0aCIgc3R5bGU9InN0cm9rZS13aWR0aDogMTsgc3Ryb2tlLWRhc2hhcnJheTogMSwgMDsiLz48L21hcmtlcj48bWFya2VyIGlkPSJteS1zdmdfZmxvd2NoYXJ0LXBvaW50U3RhcnQiIGNsYXNzPSJtYXJrZXIgZmxvd2NoYXJ0IiB2aWV3Qm94PSIwIDAgMTAgMTAiIHJlZlg9IjQuNSIgcmVmWT0iNSIgbWFya2VyVW5pdHM9InVzZXJTcGFjZU9uVXNlIiBtYXJrZXJXaWR0aD0iMTIiIG1hcmtlckhlaWdodD0iMTIiIG9yaWVudD0iYXV0byI+PHBhdGggZD0iTSAwIDUgTCAxMCAxMCBMIDEwIDAgeiIgY2xhc3M9ImFycm93TWFya2VyUGF0aCIgc3R5bGU9InN0cm9rZS13aWR0aDogMTsgc3Ryb2tlLWRhc2hhcnJheTogMSwgMDsiLz48L21hcmtlcj48bWFya2VyIGlkPSJteS1zdmdfZmxvd2NoYXJ0LWNpcmNsZUVuZCIgY2xhc3M9Im1hcmtlciBmbG93Y2hhcnQiIHZpZXdCb3g9IjAgMCAxMCAxMCIgcmVmWD0iMTEiIHJlZlk9IjUiIG1hcmtlclVuaXRzPSJ1c2VyU3BhY2VPblVzZSIgbWFya2VyV2lkdGg9IjExIiBtYXJrZXJIZWlnaHQ9IjExIiBvcmllbnQ9ImF1dG8iPjxjaXJjbGUgY3g9IjUiIGN5PSI1IiByPSI1IiBjbGFzcz0iYXJyb3dNYXJrZXJQYXRoIiBzdHlsZT0ic3Ryb2tlLXdpZHRoOiAxOyBzdHJva2UtZGFzaGFycmF5OiAxLCAwOyIvPjwvbWFya2VyPjxtYXJrZXIgaWQ9Im15LXN2Z19mbG93Y2hhcnQtY2lyY2xlU3RhcnQiIGNsYXNzPSJtYXJrZXIgZmxvd2NoYXJ0IiB2aWV3Qm94PSIwIDAgMTAgMTAiIHJlZlg9Ii0xIiByZWZZPSI1IiBtYXJrZXJVbml0cz0idXNlclNwYWNlT25Vc2UiIG1hcmtlcldpZHRoPSIxMSIgbWFya2VySGVpZ2h0PSIxMSIgb3JpZW50PSJhdXRvIj48Y2lyY2xlIGN4PSI1IiBjeT0iNSIgcj0iNSIgY2xhc3M9ImFycm93TWFya2VyUGF0aCIgc3R5bGU9InN0cm9rZS13aWR0aDogMTsgc3Ryb2tlLWRhc2hhcnJheTogMSwgMDsiLz48L21hcmtlcj48bWFya2VyIGlkPSJteS1zdmdfZmxvd2NoYXJ0LWNyb3NzRW5kIiBjbGFzcz0ibWFya2VyIGNyb3NzIGZsb3djaGFydCIgdmlld0JveD0iMCAwIDExIDExIiByZWZYPSIxMiIgcmVmWT0iNS4yIiBtYXJrZXJVbml0cz0idXNlclNwYWNlT25Vc2UiIG1hcmtlcldpZHRoPSIxMSIgbWFya2VySGVpZ2h0PSIxMSIgb3JpZW50PSJhdXRvIj48cGF0aCBkPSJNIDEsMSBsIDksOSBNIDEwLDEgbCAtOSw5IiBjbGFzcz0iYXJyb3dNYXJrZXJQYXRoIiBzdHlsZT0ic3Ryb2tlLXdpZHRoOiAyOyBzdHJva2UtZGFzaGFycmF5OiAxLCAwOyIvPjwvbWFya2VyPjxtYXJrZXIgaWQ9Im15LXN2Z19mbG93Y2hhcnQtY3Jvc3NTdGFydCIgY2xhc3M9Im1hcmtlciBjcm9zcyBmbG93Y2hhcnQiIHZpZXdCb3g9IjAgMCAxMSAxMSIgcmVmWD0iLTEiIHJlZlk9IjUuMiIgbWFya2VyVW5pdHM9InVzZXJTcGFjZU9uVXNlIiBtYXJrZXJXaWR0aD0iMTEiIG1hcmtlckhlaWdodD0iMTEiIG9yaWVudD0iYXV0byI+PHBhdGggZD0iTSAxLDEgbCA5LDkgTSAxMCwxIGwgLTksOSIgY2xhc3M9ImFycm93TWFya2VyUGF0aCIgc3R5bGU9InN0cm9rZS13aWR0aDogMjsgc3Ryb2tlLWRhc2hhcnJheTogMSwgMDsiLz48L21hcmtlcj48ZyBjbGFzcz0icm9vdCI+PGcgY2xhc3M9ImNsdXN0ZXJzIi8+PGcgY2xhc3M9ImVkZ2VQYXRocyI+PHBhdGggZD0iTTExNy4yMzQsMzZMMTIxLjQwMSwzNkMxMjUuNTY4LDM2LDEzMy45MDEsMzYsMTQxLjM1MSwzNkMxNDguODAxLDM2LDE1NS4zNjgsMzYsMTU4LjY1MSwzNkwxNjEuOTM0LDM2IiBpZD0iTC1XMC1XMS0wIiBjbGFzcz0iZWRnZS10aGlja25lc3Mtbm9ybWFsIGVkZ2UtcGF0dGVybi1zb2xpZCBmbG93Y2hhcnQtbGluayBMUy1XMCBMRS1XMSIgc3R5bGU9ImZpbGw6bm9uZTsiIG1hcmtlci1lbmQ9InVybCgjbXktc3ZnX2Zsb3djaGFydC1wb2ludEVuZCkiLz48cGF0aCBkPSJNMjY2Ljk4NCwzNkwyNzEuMTUxLDM2QzI3NS4zMTgsMzYsMjgzLjY1MSwzNiwyOTEuMTAxLDM2QzI5OC41NTEsMzYsMzA1LjExOCwzNiwzMDguNDAxLDM2TDMxMS42ODQsMzYiIGlkPSJMLVcxLVcyLTAiIGNsYXNzPSJlZGdlLXRoaWNrbmVzcy1ub3JtYWwgZWRnZS1wYXR0ZXJuLXNvbGlkIGZsb3djaGFydC1saW5rIExTLVcxIExFLVcyIiBzdHlsZT0iZmlsbDpub25lOyIgbWFya2VyLWVuZD0idXJsKCNteS1zdmdfZmxvd2NoYXJ0LXBvaW50RW5kKSIvPjxwYXRoIGQ9Ik00NjkuMjk3LDM2TDQ3My40NjQsMzZDNDc3LjYzLDM2LDQ4NS45NjQsMzYsNDkzLjQxNCwzNkM1MDAuODY0LDM2LDUwNy40MywzNiw1MTAuNzE0LDM2TDUxMy45OTcsMzYiIGlkPSJMLVcyLVczLTAiIGNsYXNzPSJlZGdlLXRoaWNrbmVzcy1ub3JtYWwgZWRnZS1wYXR0ZXJuLXNvbGlkIGZsb3djaGFydC1saW5rIExTLVcyIExFLVczIiBzdHlsZT0iZmlsbDpub25lOyIgbWFya2VyLWVuZD0idXJsKCNteS1zdmdfZmxvd2NoYXJ0LXBvaW50RW5kKSIvPjxwYXRoIGQ9Ik02MDYuNDM4LDM2TDYxMC42MDQsMzZDNjE0Ljc3MSwzNiw2MjMuMTA0LDM2LDYzMC41NTQsMzZDNjM4LjAwNCwzNiw2NDQuNTcxLDM2LDY0Ny44NTQsMzZMNjUxLjEzOCwzNiIgaWQ9IkwtVzMtVzQtMCIgY2xhc3M9ImVkZ2UtdGhpY2tuZXNzLW5vcm1hbCBlZGdlLXBhdHRlcm4tc29saWQgZmxvd2NoYXJ0LWxpbmsgTFMtVzMgTEUtVzQiIHN0eWxlPSJmaWxsOm5vbmU7IiBtYXJrZXItZW5kPSJ1cmwoI215LXN2Z19mbG93Y2hhcnQtcG9pbnRFbmQpIi8+PHBhdGggZD0iTTc1My44MTMsMzZMNzU3Ljk3OSwzNkM3NjIuMTQ2LDM2LDc3MC40NzksMzYsNzc3LjkyOSwzNkM3ODUuMzc5LDM2LDc5MS45NDYsMzYsNzk1LjIyOSwzNkw3OTguNTEzLDM2IiBpZD0iTC1XNC1XNS0wIiBjbGFzcz0iZWRnZS10aGlja25lc3Mtbm9ybWFsIGVkZ2UtcGF0dGVybi1zb2xpZCBmbG93Y2hhcnQtbGluayBMUy1XNCBMRS1XNSIgc3R5bGU9ImZpbGw6bm9uZTsiIG1hcmtlci1lbmQ9InVybCgjbXktc3ZnX2Zsb3djaGFydC1wb2ludEVuZCkiLz48cGF0aCBkPSJNOTIwLjU3OCwzNkw5MjQuNzQ1LDM2QzkyOC45MTEsMzYsOTM3LjI0NSwzNiw5NDQuNjk1LDM2Qzk1Mi4xNDUsMzYsOTU4LjcxMSwzNiw5NjEuOTk1LDM2TDk2NS4yNzgsMzYiIGlkPSJMLVc1LVc2LTAiIGNsYXNzPSJlZGdlLXRoaWNrbmVzcy1ub3JtYWwgZWRnZS1wYXR0ZXJuLXNvbGlkIGZsb3djaGFydC1saW5rIExTLVc1IExFLVc2IiBzdHlsZT0iZmlsbDpub25lOyIgbWFya2VyLWVuZD0idXJsKCNteS1zdmdfZmxvd2NoYXJ0LXBvaW50RW5kKSIvPjwvZz48ZyBjbGFzcz0iZWRnZUxhYmVscyI+PGcgY2xhc3M9ImVkZ2VMYWJlbCI+PGcgY2xhc3M9ImxhYmVsIiB0cmFuc2Zvcm09InRyYW5zbGF0ZSgwLCAwKSI+PGZvcmVpZ25PYmplY3Qgd2lkdGg9IjAiIGhlaWdodD0iMCI+PGRpdiB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMTk5OS94aHRtbCIgc3R5bGU9ImRpc3BsYXk6IGlubGluZS1ibG9jazsgd2hpdGUtc3BhY2U6IG5vd3JhcDsiPjxzcGFuIGNsYXNzPSJlZGdlTGFiZWwiPjwvc3Bhbj48L2Rpdj48L2ZvcmVpZ25PYmplY3Q+PC9nPjwvZz48ZyBjbGFzcz0iZWRnZUxhYmVsIj48ZyBjbGFzcz0ibGFiZWwiIHRyYW5zZm9ybT0idHJhbnNsYXRlKDAsIDApIj48Zm9yZWlnbk9iamVjdCB3aWR0aD0iMCIgaGVpZ2h0PSIwIj48ZGl2IHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8xOTk5L3hodG1sIiBzdHlsZT0iZGlzcGxheTogaW5saW5lLWJsb2NrOyB3aGl0ZS1zcGFjZTogbm93cmFwOyI+PHNwYW4gY2xhc3M9ImVkZ2VMYWJlbCI+PC9zcGFuPjwvZGl2PjwvZm9yZWlnbk9iamVjdD48L2c+PC9nPjxnIGNsYXNzPSJlZGdlTGFiZWwiPjxnIGNsYXNzPSJsYWJlbCIgdHJhbnNmb3JtPSJ0cmFuc2xhdGUoMCwgMCkiPjxmb3JlaWduT2JqZWN0IHdpZHRoPSIwIiBoZWlnaHQ9IjAiPjxkaXYgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzE5OTkveGh0bWwiIHN0eWxlPSJkaXNwbGF5OiBpbmxpbmUtYmxvY2s7IHdoaXRlLXNwYWNlOiBub3dyYXA7Ij48c3BhbiBjbGFzcz0iZWRnZUxhYmVsIj48L3NwYW4+PC9kaXY+PC9mb3JlaWduT2JqZWN0PjwvZz48L2c+PGcgY2xhc3M9ImVkZ2VMYWJlbCI+PGcgY2xhc3M9ImxhYmVsIiB0cmFuc2Zvcm09InRyYW5zbGF0ZSgwLCAwKSI+PGZvcmVpZ25PYmplY3Qgd2lkdGg9IjAiIGhlaWdodD0iMCI+PGRpdiB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMTk5OS94aHRtbCIgc3R5bGU9ImRpc3BsYXk6IGlubGluZS1ibG9jazsgd2hpdGUtc3BhY2U6IG5vd3JhcDsiPjxzcGFuIGNsYXNzPSJlZGdlTGFiZWwiPjwvc3Bhbj48L2Rpdj48L2ZvcmVpZ25PYmplY3Q+PC9nPjwvZz48ZyBjbGFzcz0iZWRnZUxhYmVsIj48ZyBjbGFzcz0ibGFiZWwiIHRyYW5zZm9ybT0idHJhbnNsYXRlKDAsIDApIj48Zm9yZWlnbk9iamVjdCB3aWR0aD0iMCIgaGVpZ2h0PSIwIj48ZGl2IHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8xOTk5L3hodG1sIiBzdHlsZT0iZGlzcGxheTogaW5saW5lLWJsb2NrOyB3aGl0ZS1zcGFjZTogbm93cmFwOyI+PHNwYW4gY2xhc3M9ImVkZ2VMYWJlbCI+PC9zcGFuPjwvZGl2PjwvZm9yZWlnbk9iamVjdD48L2c+PC9nPjxnIGNsYXNzPSJlZGdlTGFiZWwiPjxnIGNsYXNzPSJsYWJlbCIgdHJhbnNmb3JtPSJ0cmFuc2xhdGUoMCwgMCkiPjxmb3JlaWduT2JqZWN0IHdpZHRoPSIwIiBoZWlnaHQ9IjAiPjxkaXYgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzE5OTkveGh0bWwiIHN0eWxlPSJkaXNwbGF5OiBpbmxpbmUtYmxvY2s7IHdoaXRlLXNwYWNlOiBub3dyYXA7Ij48c3BhbiBjbGFzcz0iZWRnZUxhYmVsIj48L3NwYW4+PC9kaXY+PC9mb3JlaWduT2JqZWN0PjwvZz48L2c+PC9nPjxnIGNsYXNzPSJub2RlcyI+PGcgY2xhc3M9Im5vZGUgZGVmYXVsdCBkZWZhdWx0IGZsb3djaGFydC1sYWJlbCIgaWQ9ImZsb3djaGFydC1XMC0wIiBkYXRhLW5vZGU9InRydWUiIGRhdGEtaWQ9IlcwIiB0cmFuc2Zvcm09InRyYW5zbGF0ZSg1OC42MTcxODc1LCAzNikiPjxyZWN0IGNsYXNzPSJiYXNpYyBsYWJlbC1jb250YWluZXIiIHN0eWxlPSIiIHJ4PSIwIiByeT0iMCIgeD0iLTU4LjYxNzE4NzUiIHk9Ii0zNiIgd2lkdGg9IjExNy4yMzQzNzUiIGhlaWdodD0iNzIiLz48ZyBjbGFzcz0ibGFiZWwiIHN0eWxlPSIiIHRyYW5zZm9ybT0idHJhbnNsYXRlKC01MS4xMTcxODc1LCAtMjguNSkiPjxyZWN0Lz48Zm9yZWlnbk9iamVjdCB3aWR0aD0iMTAyLjIzNDM3NSIgaGVpZ2h0PSI1NyI+PGRpdiB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMTk5OS94aHRtbCIgc3R5bGU9ImRpc3BsYXk6IGlubGluZS1ibG9jazsgd2hpdGUtc3BhY2U6IG5vd3JhcDsiPjxzcGFuIGNsYXNzPSJub2RlTGFiZWwiPlcwPGJyIC8+cGFja2FnaW5nIGFuZDxiciAvPk1ldGFsIHBpcGVsaW5lPC9zcGFuPjwvZGl2PjwvZm9yZWlnbk9iamVjdD48L2c+PC9nPjxnIGNsYXNzPSJub2RlIGRlZmF1bHQgZGVmYXVsdCBmbG93Y2hhcnQtbGFiZWwiIGlkPSJmbG93Y2hhcnQtVzEtMSIgZGF0YS1ub2RlPSJ0cnVlIiBkYXRhLWlkPSJXMSIgdHJhbnNmb3JtPSJ0cmFuc2xhdGUoMjE3LjEwOTM3NSwgMzYpIj48cmVjdCBjbGFzcz0iYmFzaWMgbGFiZWwtY29udGFpbmVyIiBzdHlsZT0iIiByeD0iMCIgcnk9IjAiIHg9Ii00OS44NzUiIHk9Ii0yNi41IiB3aWR0aD0iOTkuNzUiIGhlaWdodD0iNTMiLz48ZyBjbGFzcz0ibGFiZWwiIHN0eWxlPSIiIHRyYW5zZm9ybT0idHJhbnNsYXRlKC00Mi4zNzUsIC0xOSkiPjxyZWN0Lz48Zm9yZWlnbk9iamVjdCB3aWR0aD0iODQuNzUiIGhlaWdodD0iMzgiPjxkaXYgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzE5OTkveGh0bWwiIHN0eWxlPSJkaXNwbGF5OiBpbmxpbmUtYmxvY2s7IHdoaXRlLXNwYWNlOiBub3dyYXA7Ij48c3BhbiBjbGFzcz0ibm9kZUxhYmVsIj5XMTxiciAvPkNQVSBvcmFjbGVzPC9zcGFuPjwvZGl2PjwvZm9yZWlnbk9iamVjdD48L2c+PC9nPjxnIGNsYXNzPSJub2RlIGRlZmF1bHQgZGVmYXVsdCBmbG93Y2hhcnQtbGFiZWwiIGlkPSJmbG93Y2hhcnQtVzItMyIgZGF0YS1ub2RlPSJ0cnVlIiBkYXRhLWlkPSJXMiIgdHJhbnNmb3JtPSJ0cmFuc2xhdGUoMzkzLjE0MDYyNSwgMzYpIj48cmVjdCBjbGFzcz0iYmFzaWMgbGFiZWwtY29udGFpbmVyIiBzdHlsZT0iIiByeD0iMCIgcnk9IjAiIHg9Ii03Ni4xNTYyNSIgeT0iLTM2IiB3aWR0aD0iMTUyLjMxMjUiIGhlaWdodD0iNzIiLz48ZyBjbGFzcz0ibGFiZWwiIHN0eWxlPSIiIHRyYW5zZm9ybT0idHJhbnNsYXRlKC02OC42NTYyNSwgLTI4LjUpIj48cmVjdC8+PGZvcmVpZ25PYmplY3Qgd2lkdGg9IjEzNy4zMTI1IiBoZWlnaHQ9IjU3Ij48ZGl2IHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8xOTk5L3hodG1sIiBzdHlsZT0iZGlzcGxheTogaW5saW5lLWJsb2NrOyB3aGl0ZS1zcGFjZTogbm93cmFwOyI+PHNwYW4gY2xhc3M9Im5vZGVMYWJlbCI+VzI8YnIgLz5BUEkgYW5kIHBoYXNlIHR3bzo8YnIgLz5maXJzdCB3b3JraW5nIHNvcnQ8L3NwYW4+PC9kaXY+PC9mb3JlaWduT2JqZWN0PjwvZz48L2c+PGcgY2xhc3M9Im5vZGUgZGVmYXVsdCBkZWZhdWx0IGZsb3djaGFydC1sYWJlbCIgaWQ9ImZsb3djaGFydC1XMy01IiBkYXRhLW5vZGU9InRydWUiIGRhdGEtaWQ9IlczIiB0cmFuc2Zvcm09InRyYW5zbGF0ZSg1NjIuODY3MTg3NSwgMzYpIj48cmVjdCBjbGFzcz0iYmFzaWMgbGFiZWwtY29udGFpbmVyIiBzdHlsZT0iIiByeD0iMCIgcnk9IjAiIHg9Ii00My41NzAzMTI1IiB5PSItMjYuNSIgd2lkdGg9Ijg3LjE0MDYyNSIgaGVpZ2h0PSI1MyIvPjxnIGNsYXNzPSJsYWJlbCIgc3R5bGU9IiIgdHJhbnNmb3JtPSJ0cmFuc2xhdGUoLTM2LjA3MDMxMjUsIC0xOSkiPjxyZWN0Lz48Zm9yZWlnbk9iamVjdCB3aWR0aD0iNzIuMTQwNjI1IiBoZWlnaHQ9IjM4Ij48ZGl2IHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8xOTk5L3hodG1sIiBzdHlsZT0iZGlzcGxheTogaW5saW5lLWJsb2NrOyB3aGl0ZS1zcGFjZTogbm93cmFwOyI+PHNwYW4gY2xhc3M9Im5vZGVMYWJlbCI+VzM8YnIgLz5waGFzZSBvbmU8L3NwYW4+PC9kaXY+PC9mb3JlaWduT2JqZWN0PjwvZz48L2c+PGcgY2xhc3M9Im5vZGUgZGVmYXVsdCBkZWZhdWx0IGZsb3djaGFydC1sYWJlbCIgaWQ9ImZsb3djaGFydC1XNC03IiBkYXRhLW5vZGU9InRydWUiIGRhdGEtaWQ9Ilc0IiB0cmFuc2Zvcm09InRyYW5zbGF0ZSg3MDUuMTI1LCAzNikiPjxyZWN0IGNsYXNzPSJiYXNpYyBsYWJlbC1jb250YWluZXIiIHN0eWxlPSIiIHJ4PSIwIiByeT0iMCIgeD0iLTQ4LjY4NzUiIHk9Ii0zNiIgd2lkdGg9Ijk3LjM3NSIgaGVpZ2h0PSI3MiIvPjxnIGNsYXNzPSJsYWJlbCIgc3R5bGU9IiIgdHJhbnNmb3JtPSJ0cmFuc2xhdGUoLTQxLjE4NzUsIC0yOC41KSI+PHJlY3QvPjxmb3JlaWduT2JqZWN0IHdpZHRoPSI4Mi4zNzUiIGhlaWdodD0iNTciPjxkaXYgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzE5OTkveGh0bWwiIHN0eWxlPSJkaXNwbGF5OiBpbmxpbmUtYmxvY2s7IHdoaXRlLXNwYWNlOiBub3dyYXA7Ij48c3BhbiBjbGFzcz0ibm9kZUxhYmVsIj5XNDxiciAvPnJlcG9ydHMgYW5kPGJyIC8+ZGlhZ25vc3RpY3M8L3NwYW4+PC9kaXY+PC9mb3JlaWduT2JqZWN0PjwvZz48L2c+PGcgY2xhc3M9Im5vZGUgZGVmYXVsdCBkZWZhdWx0IGZsb3djaGFydC1sYWJlbCIgaWQ9ImZsb3djaGFydC1XNS05IiBkYXRhLW5vZGU9InRydWUiIGRhdGEtaWQ9Ilc1IiB0cmFuc2Zvcm09InRyYW5zbGF0ZSg4NjIuMTk1MzEyNSwgMzYpIj48cmVjdCBjbGFzcz0iYmFzaWMgbGFiZWwtY29udGFpbmVyIiBzdHlsZT0iIiByeD0iMCIgcnk9IjAiIHg9Ii01OC4zODI4MTI1IiB5PSItMzYiIHdpZHRoPSIxMTYuNzY1NjI1IiBoZWlnaHQ9IjcyIi8+PGcgY2xhc3M9ImxhYmVsIiBzdHlsZT0iIiB0cmFuc2Zvcm09InRyYW5zbGF0ZSgtNTAuODgyODEyNSwgLTI4LjUpIj48cmVjdC8+PGZvcmVpZ25PYmplY3Qgd2lkdGg9IjEwMS43NjU2MjUiIGhlaWdodD0iNTciPjxkaXYgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzE5OTkveGh0bWwiIHN0eWxlPSJkaXNwbGF5OiBpbmxpbmUtYmxvY2s7IHdoaXRlLXNwYWNlOiBub3dyYXA7Ij48c3BhbiBjbGFzcz0ibm9kZUxhYmVsIj5XNTxiciAvPmNvbW1hbmQtbGluZTxiciAvPnRvb2w8L3NwYW4+PC9kaXY+PC9mb3JlaWduT2JqZWN0PjwvZz48L2c+PGcgY2xhc3M9Im5vZGUgZGVmYXVsdCBkZWZhdWx0IGZsb3djaGFydC1sYWJlbCIgaWQ9ImZsb3djaGFydC1XNi0xMSIgZGF0YS1ub2RlPSJ0cnVlIiBkYXRhLWlkPSJXNiIgdHJhbnNmb3JtPSJ0cmFuc2xhdGUoMTAzMC42MzI4MTI1LCAzNikiPjxyZWN0IGNsYXNzPSJiYXNpYyBsYWJlbC1jb250YWluZXIiIHN0eWxlPSIiIHJ4PSIwIiByeT0iMCIgeD0iLTYwLjA1NDY4NzUiIHk9Ii0zNiIgd2lkdGg9IjEyMC4xMDkzNzUiIGhlaWdodD0iNzIiLz48ZyBjbGFzcz0ibGFiZWwiIHN0eWxlPSIiIHRyYW5zZm9ybT0idHJhbnNsYXRlKC01Mi41NTQ2ODc1LCAtMjguNSkiPjxyZWN0Lz48Zm9yZWlnbk9iamVjdCB3aWR0aD0iMTA1LjEwOTM3NSIgaGVpZ2h0PSI1NyI+PGRpdiB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMTk5OS94aHRtbCIgc3R5bGU9ImRpc3BsYXk6IGlubGluZS1ibG9jazsgd2hpdGUtc3BhY2U6IG5vd3JhcDsiPjxzcGFuIGNsYXNzPSJub2RlTGFiZWwiPlc2PGJyIC8+cmVjb3JkZWQgcnVucyw8YnIgLz5jb25mb3JtYW5jZTwvc3Bhbj48L2Rpdj48L2ZvcmVpZ25PYmplY3Q+PC9nPjwvZz48L2c+PC9nPjwvZz48L3N2Zz4=" alt /></p>
+<p>A few engineering choices shaped the result:</p>
+<ul>
+<li><strong>Two buffers that take turns.</strong> Each partition step
+reads one buffer and writes the other. This avoids in-place swaps, which
+need fine-grained coordination between threads. Keys equal to the pivot
+are not copied at all: they are already in their final place, so they go
+straight to the output.</li>
+<li><strong>Sort everything as unsigned integers.</strong> Signed
+integers and floats are mapped to unsigned codes that sort in the same
+order, and mapped back at the end. The kernels only compare
+<code>uint</code>s. Floats come out in IEEE 754 <em>total order</em>,
+with
+<math display="inline" xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mi>−</mi><mn>0</mn></mrow><annotation encoding="application/x-tex">-0</annotation></semantics></math>
+before
+<math display="inline" xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mi>+</mi><mn>0</mn></mrow><annotation encoding="application/x-tex">+0</annotation></semantics></math>
+and NaNs at the ends.</li>
+<li><strong>Kernels compiled ahead of time.</strong> The Metal kernels
+ship precompiled, with a SHA-256 stamp. Every sort report and benchmark
+row records that stamp, so any number can be traced to the exact GPU
+code that produced it.</li>
+<li><strong>One header for both sides.</strong> The structs the CPU and
+GPU exchange are declared once, in a C header both compilers read. A
+test kernel reports the layout the GPU actually sees, so a mismatch
+would be caught.</li>
+<li><strong>Test hooks, debug builds only.</strong> Debug builds contain
+extra instrumentation: counters that record how many times each output
+index is written, and ways to inject failures. Tests can then check
+properties that are invisible from outside. Release builds carry none of
+it.</li>
+<li><strong>Self-tuning.</strong> The paper chooses its three
+performance parameters with a formula whose constants were fitted to its
+GPU. <code>gpuqsort tune</code> refits those constants on the current
+machine and stores them in a table keyed by GPU name.</li>
+</ul>
+<p>The result is a Swift package with a library
+(<code>GPUQuicksort</code>) and a command-line tool
+(<code>gpuqsort</code>). The tool has six commands: <code>info</code>,
+<code>gen</code>, <code>sort</code>, <code>verify</code>,
+<code>bench</code> and <code>tune</code>.</p>
+<hr />
+<h2 id="how-fast-is-it">4. How fast is it?</h2>
+<p>All measurements are from an Apple M5 Max with 18 CPU cores, using
+release builds. Each value is the median of five runs, and every result
+was checked against a CPU reference sort.</p>
+<h3 id="against-the-cpu-at-64-million-keys">Against the CPU, at 64
+million keys</h3>
+<table>
+<colgroup>
+<col style="width: 15%" />
+<col style="width: 21%" />
+<col style="width: 21%" />
+<col style="width: 21%" />
+<col style="width: 21%" />
+</colgroup>
+<thead>
+<tr>
+<th>Input</th>
+<th style="text-align: right;">GPU-Quicksort</th>
+<th style="text-align: right;">parallel <code>std::sort</code></th>
+<th style="text-align: right;"><code>std::sort</code></th>
+<th style="text-align: right;">Swift <code>Array.sort()</code></th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>uniform random</td>
+<td style="text-align: right;"><strong>43 ms</strong></td>
+<td style="text-align: right;">388 ms</td>
+<td style="text-align: right;">1,052 ms</td>
+<td style="text-align: right;">6,255 ms</td>
+</tr>
+<tr>
+<td>gaussian</td>
+<td style="text-align: right;"><strong>46 ms</strong></td>
+<td style="text-align: right;">386 ms</td>
+<td style="text-align: right;">1,049 ms</td>
+<td style="text-align: right;">6,244 ms</td>
+</tr>
+<tr>
+<td>bucket</td>
+<td style="text-align: right;"><strong>45 ms</strong></td>
+<td style="text-align: right;">354 ms</td>
+<td style="text-align: right;">1,082 ms</td>
+<td style="text-align: right;">4,681 ms</td>
+</tr>
+<tr>
+<td>staggered</td>
+<td style="text-align: right;"><strong>45 ms</strong></td>
+<td style="text-align: right;">222 ms</td>
+<td style="text-align: right;">1,157 ms</td>
+<td style="text-align: right;">4,714 ms</td>
+</tr>
+<tr>
+<td>all equal</td>
+<td style="text-align: right;"><strong>6.8 ms</strong></td>
+<td style="text-align: right;">91 ms</td>
+<td style="text-align: right;">56 ms</td>
+<td style="text-align: right;">45 ms</td>
+</tr>
+<tr>
+<td>already sorted</td>
+<td style="text-align: right;"><strong>43 ms</strong></td>
+<td style="text-align: right;">109 ms</td>
+<td style="text-align: right;">44 ms</td>
+<td style="text-align: right;">45 ms</td>
+</tr>
+</tbody>
+</table>
+<p>The GPU wins on every random distribution from the paper, including
+<code>staggered</code>, which is designed to produce bad pivots.
+All-equal input is its best case, at nearly 10 billion keys per second:
+one partition pass sends every key into the pivot gap, and the sort is
+done. The only input where a CPU keeps up is already-sorted data, which
+sequential <code>std::sort</code> detects and handles in near-linear
+time.</p>
+<h3 id="how-the-advantage-grows-with-size">How the advantage grows with
+size</h3>
+<p><img role="img" aria-label src="data:image/svg+xml;base64,PHN2ZyBpZD0ibXktc3ZnIiB3aWR0aD0iMTAwJSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIiB4bWxuczp4bGluaz0iaHR0cDovL3d3dy53My5vcmcvMTk5OS94bGluayIgc3R5bGU9Im1heC13aWR0aDogNzAwcHg7IGJhY2tncm91bmQtY29sb3I6IHdoaXRlOyIgdmlld0JveD0iMCAwIDcwMCA1MDAiIHJvbGU9ImdyYXBoaWNzLWRvY3VtZW50IGRvY3VtZW50IiBhcmlhLXJvbGVkZXNjcmlwdGlvbj0ieHljaGFydCI+PHN0eWxlPiNteS1zdmd7Zm9udC1mYW1pbHk6InRyZWJ1Y2hldCBtcyIsdmVyZGFuYSxhcmlhbCxzYW5zLXNlcmlmO2ZvbnQtc2l6ZToxNnB4O2ZpbGw6IzMzMzt9I215LXN2ZyAuZXJyb3ItaWNvbntmaWxsOiM1NTIyMjI7fSNteS1zdmcgLmVycm9yLXRleHR7ZmlsbDojNTUyMjIyO3N0cm9rZTojNTUyMjIyO30jbXktc3ZnIC5lZGdlLXRoaWNrbmVzcy1ub3JtYWx7c3Ryb2tlLXdpZHRoOjJweDt9I215LXN2ZyAuZWRnZS10aGlja25lc3MtdGhpY2t7c3Ryb2tlLXdpZHRoOjMuNXB4O30jbXktc3ZnIC5lZGdlLXBhdHRlcm4tc29saWR7c3Ryb2tlLWRhc2hhcnJheTowO30jbXktc3ZnIC5lZGdlLXBhdHRlcm4tZGFzaGVke3N0cm9rZS1kYXNoYXJyYXk6Mzt9I215LXN2ZyAuZWRnZS1wYXR0ZXJuLWRvdHRlZHtzdHJva2UtZGFzaGFycmF5OjI7fSNteS1zdmcgLm1hcmtlcntmaWxsOiMzMzMzMzM7c3Ryb2tlOiMzMzMzMzM7fSNteS1zdmcgLm1hcmtlci5jcm9zc3tzdHJva2U6IzMzMzMzMzt9I215LXN2ZyBzdmd7Zm9udC1mYW1pbHk6InRyZWJ1Y2hldCBtcyIsdmVyZGFuYSxhcmlhbCxzYW5zLXNlcmlmO2ZvbnQtc2l6ZToxNnB4O30jbXktc3ZnIDpyb290ey0tbWVybWFpZC1mb250LWZhbWlseToidHJlYnVjaGV0IG1zIix2ZXJkYW5hLGFyaWFsLHNhbnMtc2VyaWY7fTwvc3R5bGU+PGcvPjxnIGNsYXNzPSJtYWluIj48cmVjdCB3aWR0aD0iNzAwIiBoZWlnaHQ9IjUwMCIgY2xhc3M9ImJhY2tncm91bmQiIGZpbGw9IndoaXRlIi8+PGcgY2xhc3M9ImNoYXJ0LXRpdGxlIj48dGV4dCB4PSIwIiB5PSIwIiBmaWxsPSIjMTMxMzAwIiBmb250LXNpemU9IjIwIiBkb21pbmFudC1iYXNlbGluZT0ibWlkZGxlIiB0ZXh0LWFuY2hvcj0ibWlkZGxlIiB0cmFuc2Zvcm09InRyYW5zbGF0ZSgzNTAsIDIxLjU4OTg0Mzc1KSByb3RhdGUoMCkiPlNwZWVkLXVwIG92ZXIgcGFyYWxsZWwgc3RkOjpzb3J0ICh1bmlmb3JtIGtleXMpPC90ZXh0PjwvZz48ZyBjbGFzcz0icGxvdCI+PGcgY2xhc3M9ImJhci1wbG90LTAiPjxyZWN0IHg9IjYyLjE4NzUwMTkwNzM0ODYzIiB5PSIyOTkuOTUwMDc4MTI1IiB3aWR0aD0iNTciIGhlaWdodD0iMTY3LjA0OTkyMTg3NSIgZmlsbD0iI0VDRUNGRiIgc3Ryb2tlPSIjRUNFQ0ZGIiBzdHJva2Utd2lkdGg9IjAiLz48cmVjdCB4PSIxNTguNzM5NTg0OTIyNzkwNTMiIHk9IjI4My42MzcyNjU2MjUwMDAwNSIgd2lkdGg9IjU3IiBoZWlnaHQ9IjE4My4zNjI3MzQzNzQ5OTk5NSIgZmlsbD0iI0VDRUNGRiIgc3Ryb2tlPSIjRUNFQ0ZGIiBzdHJva2Utd2lkdGg9IjAiLz48cmVjdCB4PSIyNTUuMjkxNjY3OTM4MjMyNDIiIHk9IjI1NS4wODk4NDM3NSIgd2lkdGg9IjU3IiBoZWlnaHQ9IjIxMS45MTAxNTYyNSIgZmlsbD0iI0VDRUNGRiIgc3Ryb2tlPSIjRUNFQ0ZGIiBzdHJva2Utd2lkdGg9IjAiLz48cmVjdCB4PSIzNTEuODQzNzUwOTUzNjc0MyIgeT0iMTkzLjkxNjc5Njg3NSIgd2lkdGg9IjU3IiBoZWlnaHQ9IjI3My4wODMyMDMxMjUiIGZpbGw9IiNFQ0VDRkYiIHN0cm9rZT0iI0VDRUNGRiIgc3Ryb2tlLXdpZHRoPSIwIi8+PHJlY3QgeD0iNDQ4LjM5NTgzMzk2OTExNjIiIHk9IjE2MS4yOTExNzE4NzUiIHdpZHRoPSI1NyIgaGVpZ2h0PSIzMDUuNzA4ODI4MTI0OTk5OTciIGZpbGw9IiNFQ0VDRkYiIHN0cm9rZT0iI0VDRUNGRiIgc3Ryb2tlLXdpZHRoPSIwIi8+PHJlY3QgeD0iNTQ0Ljk0NzkxNjk4NDU1ODEiIHk9IjEyMC41MDkxNDA2MjQ5OTk5OSIgd2lkdGg9IjU3IiBoZWlnaHQ9IjM0Ni40OTA4NTkzNzUiIGZpbGw9IiNFQ0VDRkYiIHN0cm9rZT0iI0VDRUNGRiIgc3Ryb2tlLXdpZHRoPSIwIi8+PHJlY3QgeD0iNjQxLjUiIHk9IjkxLjk2MTcxODc0OTk5OTk5IiB3aWR0aD0iNTciIGhlaWdodD0iMzc1LjAzODI4MTI1IiBmaWxsPSIjRUNFQ0ZGIiBzdHJva2U9IiNFQ0VDRkYiIHN0cm9rZS13aWR0aD0iMCIvPjwvZz48L2c+PGcgY2xhc3M9ImJvdHRvbS1heGlzIj48ZyBjbGFzcz0iYXhpcy1saW5lIj48cGF0aCBkPSJNIDYwLjY4NzUwMTkwNzM0ODYzLDQ2OCBMIDcwMCw0NjgiIGZpbGw9Im5vbmUiIHN0cm9rZT0iIzEzMTMwMCIgc3Ryb2tlLXdpZHRoPSIyIi8+PC9nPjxnIGNsYXNzPSJsYWJlbCI+PHRleHQgeD0iMCIgeT0iMCIgZmlsbD0iIzEzMTMwMCIgZm9udC1zaXplPSIxNCIgZG9taW5hbnQtYmFzZWxpbmU9InRleHQtYmVmb3JlLWVkZ2UiIHRleHQtYW5jaG9yPSJtaWRkbGUiIHRyYW5zZm9ybT0idHJhbnNsYXRlKDkwLjY4NzUwMTkwNzM0ODYzLCA0NzkpIHJvdGF0ZSgwKSI+MU08L3RleHQ+PHRleHQgeD0iMCIgeT0iMCIgZmlsbD0iIzEzMTMwMCIgZm9udC1zaXplPSIxNCIgZG9taW5hbnQtYmFzZWxpbmU9InRleHQtYmVmb3JlLWVkZ2UiIHRleHQtYW5jaG9yPSJtaWRkbGUiIHRyYW5zZm9ybT0idHJhbnNsYXRlKDE4Ny4yMzk1ODQ5MjI3OTA1MywgNDc5KSByb3RhdGUoMCkiPjJNPC90ZXh0Pjx0ZXh0IHg9IjAiIHk9IjAiIGZpbGw9IiMxMzEzMDAiIGZvbnQtc2l6ZT0iMTQiIGRvbWluYW50LWJhc2VsaW5lPSJ0ZXh0LWJlZm9yZS1lZGdlIiB0ZXh0LWFuY2hvcj0ibWlkZGxlIiB0cmFuc2Zvcm09InRyYW5zbGF0ZSgyODMuNzkxNjY3OTM4MjMyNCwgNDc5KSByb3RhdGUoMCkiPjRNPC90ZXh0Pjx0ZXh0IHg9IjAiIHk9IjAiIGZpbGw9IiMxMzEzMDAiIGZvbnQtc2l6ZT0iMTQiIGRvbWluYW50LWJhc2VsaW5lPSJ0ZXh0LWJlZm9yZS1lZGdlIiB0ZXh0LWFuY2hvcj0ibWlkZGxlIiB0cmFuc2Zvcm09InRyYW5zbGF0ZSgzODAuMzQzNzUwOTUzNjc0MywgNDc5KSByb3RhdGUoMCkiPjhNPC90ZXh0Pjx0ZXh0IHg9IjAiIHk9IjAiIGZpbGw9IiMxMzEzMDAiIGZvbnQtc2l6ZT0iMTQiIGRvbWluYW50LWJhc2VsaW5lPSJ0ZXh0LWJlZm9yZS1lZGdlIiB0ZXh0LWFuY2hvcj0ibWlkZGxlIiB0cmFuc2Zvcm09InRyYW5zbGF0ZSg0NzYuODk1ODMzOTY5MTE2MiwgNDc5KSByb3RhdGUoMCkiPjE2TTwvdGV4dD48dGV4dCB4PSIwIiB5PSIwIiBmaWxsPSIjMTMxMzAwIiBmb250LXNpemU9IjE0IiBkb21pbmFudC1iYXNlbGluZT0idGV4dC1iZWZvcmUtZWRnZSIgdGV4dC1hbmNob3I9Im1pZGRsZSIgdHJhbnNmb3JtPSJ0cmFuc2xhdGUoNTczLjQ0NzkxNjk4NDU1ODEsIDQ3OSkgcm90YXRlKDApIj4zMk08L3RleHQ+PHRleHQgeD0iMCIgeT0iMCIgZmlsbD0iIzEzMTMwMCIgZm9udC1zaXplPSIxNCIgZG9taW5hbnQtYmFzZWxpbmU9InRleHQtYmVmb3JlLWVkZ2UiIHRleHQtYW5jaG9yPSJtaWRkbGUiIHRyYW5zZm9ybT0idHJhbnNsYXRlKDY3MCwgNDc5KSByb3RhdGUoMCkiPjY0TTwvdGV4dD48L2c+PGcgY2xhc3M9InRpY2tzIj48cGF0aCBkPSJNIDkwLjY4NzUwMTkwNzM0ODYzLDQ2OSBMIDkwLjY4NzUwMTkwNzM0ODYzLDQ3NCIgZmlsbD0ibm9uZSIgc3Ryb2tlPSIjMTMxMzAwIiBzdHJva2Utd2lkdGg9IjIiLz48cGF0aCBkPSJNIDE4Ny4yMzk1ODQ5MjI3OTA1Myw0NjkgTCAxODcuMjM5NTg0OTIyNzkwNTMsNDc0IiBmaWxsPSJub25lIiBzdHJva2U9IiMxMzEzMDAiIHN0cm9rZS13aWR0aD0iMiIvPjxwYXRoIGQ9Ik0gMjgzLjc5MTY2NzkzODIzMjQsNDY5IEwgMjgzLjc5MTY2NzkzODIzMjQsNDc0IiBmaWxsPSJub25lIiBzdHJva2U9IiMxMzEzMDAiIHN0cm9rZS13aWR0aD0iMiIvPjxwYXRoIGQ9Ik0gMzgwLjM0Mzc1MDk1MzY3NDMsNDY5IEwgMzgwLjM0Mzc1MDk1MzY3NDMsNDc0IiBmaWxsPSJub25lIiBzdHJva2U9IiMxMzEzMDAiIHN0cm9rZS13aWR0aD0iMiIvPjxwYXRoIGQ9Ik0gNDc2Ljg5NTgzMzk2OTExNjIsNDY5IEwgNDc2Ljg5NTgzMzk2OTExNjIsNDc0IiBmaWxsPSJub25lIiBzdHJva2U9IiMxMzEzMDAiIHN0cm9rZS13aWR0aD0iMiIvPjxwYXRoIGQ9Ik0gNTczLjQ0NzkxNjk4NDU1ODEsNDY5IEwgNTczLjQ0NzkxNjk4NDU1ODEsNDc0IiBmaWxsPSJub25lIiBzdHJva2U9IiMxMzEzMDAiIHN0cm9rZS13aWR0aD0iMiIvPjxwYXRoIGQ9Ik0gNjcwLDQ2OSBMIDY3MCw0NzQiIGZpbGw9Im5vbmUiIHN0cm9rZT0iIzEzMTMwMCIgc3Ryb2tlLXdpZHRoPSIyIi8+PC9nPjwvZz48ZyBjbGFzcz0ibGVmdC1heGlzIj48ZyBjbGFzcz0iYXhpc2wtbGluZSI+PHBhdGggZD0iTSA1OS42ODc1MDE5MDczNDg2Myw0My4xNzk2ODc1IEwgNTkuNjg3NTAxOTA3MzQ4NjMsNDY3IiBmaWxsPSJub25lIiBzdHJva2U9IiMxMzEzMDAiIHN0cm9rZS13aWR0aD0iMiIvPjwvZz48ZyBjbGFzcz0ibGFiZWwiPjx0ZXh0IHg9IjAiIHk9IjAiIGZpbGw9IiMxMzEzMDAiIGZvbnQtc2l6ZT0iMTQiIGRvbWluYW50LWJhc2VsaW5lPSJtaWRkbGUiIHRleHQtYW5jaG9yPSJlbmQiIHRyYW5zZm9ybT0idHJhbnNsYXRlKDQ4LjY4NzUwMTkwNzM0ODYzLCA1MS4xNzk2ODc1KSByb3RhdGUoMCkiPjEwPC90ZXh0Pjx0ZXh0IHg9IjAiIHk9IjAiIGZpbGw9IiMxMzEzMDAiIGZvbnQtc2l6ZT0iMTQiIGRvbWluYW50LWJhc2VsaW5lPSJtaWRkbGUiIHRleHQtYW5jaG9yPSJlbmQiIHRyYW5zZm9ybT0idHJhbnNsYXRlKDQ4LjY4NzUwMTkwNzM0ODYzLCA5MS45NjE3MTg3NDk5OTk5OSkgcm90YXRlKDApIj45PC90ZXh0Pjx0ZXh0IHg9IjAiIHk9IjAiIGZpbGw9IiMxMzEzMDAiIGZvbnQtc2l6ZT0iMTQiIGRvbWluYW50LWJhc2VsaW5lPSJtaWRkbGUiIHRleHQtYW5jaG9yPSJlbmQiIHRyYW5zZm9ybT0idHJhbnNsYXRlKDQ4LjY4NzUwMTkwNzM0ODYzLCAxMzIuNzQzNzQ5OTk5OTk5OTgpIHJvdGF0ZSgwKSI+ODwvdGV4dD48dGV4dCB4PSIwIiB5PSIwIiBmaWxsPSIjMTMxMzAwIiBmb250LXNpemU9IjE0IiBkb21pbmFudC1iYXNlbGluZT0ibWlkZGxlIiB0ZXh0LWFuY2hvcj0iZW5kIiB0cmFuc2Zvcm09InRyYW5zbGF0ZSg0OC42ODc1MDE5MDczNDg2MywgMTczLjUyNTc4MTI1MDAwMDAyKSByb3RhdGUoMCkiPjc8L3RleHQ+PHRleHQgeD0iMCIgeT0iMCIgZmlsbD0iIzEzMTMwMCIgZm9udC1zaXplPSIxNCIgZG9taW5hbnQtYmFzZWxpbmU9Im1pZGRsZSIgdGV4dC1hbmNob3I9ImVuZCIgdHJhbnNmb3JtPSJ0cmFuc2xhdGUoNDguNjg3NTAxOTA3MzQ4NjMsIDIxNC4zMDc4MTI1KSByb3RhdGUoMCkiPjY8L3RleHQ+PHRleHQgeD0iMCIgeT0iMCIgZmlsbD0iIzEzMTMwMCIgZm9udC1zaXplPSIxNCIgZG9taW5hbnQtYmFzZWxpbmU9Im1pZGRsZSIgdGV4dC1hbmNob3I9ImVuZCIgdHJhbnNmb3JtPSJ0cmFuc2xhdGUoNDguNjg3NTAxOTA3MzQ4NjMsIDI1NS4wODk4NDM3NSkgcm90YXRlKDApIj41PC90ZXh0Pjx0ZXh0IHg9IjAiIHk9IjAiIGZpbGw9IiMxMzEzMDAiIGZvbnQtc2l6ZT0iMTQiIGRvbWluYW50LWJhc2VsaW5lPSJtaWRkbGUiIHRleHQtYW5jaG9yPSJlbmQiIHRyYW5zZm9ybT0idHJhbnNsYXRlKDQ4LjY4NzUwMTkwNzM0ODYzLCAyOTUuODcxODc1KSByb3RhdGUoMCkiPjQ8L3RleHQ+PHRleHQgeD0iMCIgeT0iMCIgZmlsbD0iIzEzMTMwMCIgZm9udC1zaXplPSIxNCIgZG9taW5hbnQtYmFzZWxpbmU9Im1pZGRsZSIgdGV4dC1hbmNob3I9ImVuZCIgdHJhbnNmb3JtPSJ0cmFuc2xhdGUoNDguNjg3NTAxOTA3MzQ4NjMsIDMzNi42NTM5MDYyNSkgcm90YXRlKDApIj4zPC90ZXh0Pjx0ZXh0IHg9IjAiIHk9IjAiIGZpbGw9IiMxMzEzMDAiIGZvbnQtc2l6ZT0iMTQiIGRvbWluYW50LWJhc2VsaW5lPSJtaWRkbGUiIHRleHQtYW5jaG9yPSJlbmQiIHRyYW5zZm9ybT0idHJhbnNsYXRlKDQ4LjY4NzUwMTkwNzM0ODYzLCAzNzcuNDM1OTM3NSkgcm90YXRlKDApIj4yPC90ZXh0Pjx0ZXh0IHg9IjAiIHk9IjAiIGZpbGw9IiMxMzEzMDAiIGZvbnQtc2l6ZT0iMTQiIGRvbWluYW50LWJhc2VsaW5lPSJtaWRkbGUiIHRleHQtYW5jaG9yPSJlbmQiIHRyYW5zZm9ybT0idHJhbnNsYXRlKDQ4LjY4NzUwMTkwNzM0ODYzLCA0MTguMjE3OTY4NzUpIHJvdGF0ZSgwKSI+MTwvdGV4dD48dGV4dCB4PSIwIiB5PSIwIiBmaWxsPSIjMTMxMzAwIiBmb250LXNpemU9IjE0IiBkb21pbmFudC1iYXNlbGluZT0ibWlkZGxlIiB0ZXh0LWFuY2hvcj0iZW5kIiB0cmFuc2Zvcm09InRyYW5zbGF0ZSg0OC42ODc1MDE5MDczNDg2MywgNDU5KSByb3RhdGUoMCkiPjA8L3RleHQ+PC9nPjxnIGNsYXNzPSJ0aWNrcyI+PHBhdGggZD0iTSA1OC42ODc1MDE5MDczNDg2Myw1MS4xNzk2ODc1IEwgNTMuNjg3NTAxOTA3MzQ4NjMsNTEuMTc5Njg3NSIgZmlsbD0ibm9uZSIgc3Ryb2tlPSIjMTMxMzAwIiBzdHJva2Utd2lkdGg9IjIiLz48cGF0aCBkPSJNIDU4LjY4NzUwMTkwNzM0ODYzLDkxLjk2MTcxODc0OTk5OTk5IEwgNTMuNjg3NTAxOTA3MzQ4NjMsOTEuOTYxNzE4NzQ5OTk5OTkiIGZpbGw9Im5vbmUiIHN0cm9rZT0iIzEzMTMwMCIgc3Ryb2tlLXdpZHRoPSIyIi8+PHBhdGggZD0iTSA1OC42ODc1MDE5MDczNDg2MywxMzIuNzQzNzQ5OTk5OTk5OTggTCA1My42ODc1MDE5MDczNDg2MywxMzIuNzQzNzQ5OTk5OTk5OTgiIGZpbGw9Im5vbmUiIHN0cm9rZT0iIzEzMTMwMCIgc3Ryb2tlLXdpZHRoPSIyIi8+PHBhdGggZD0iTSA1OC42ODc1MDE5MDczNDg2MywxNzMuNTI1NzgxMjUwMDAwMDIgTCA1My42ODc1MDE5MDczNDg2MywxNzMuNTI1NzgxMjUwMDAwMDIiIGZpbGw9Im5vbmUiIHN0cm9rZT0iIzEzMTMwMCIgc3Ryb2tlLXdpZHRoPSIyIi8+PHBhdGggZD0iTSA1OC42ODc1MDE5MDczNDg2MywyMTQuMzA3ODEyNSBMIDUzLjY4NzUwMTkwNzM0ODYzLDIxNC4zMDc4MTI1IiBmaWxsPSJub25lIiBzdHJva2U9IiMxMzEzMDAiIHN0cm9rZS13aWR0aD0iMiIvPjxwYXRoIGQ9Ik0gNTguNjg3NTAxOTA3MzQ4NjMsMjU1LjA4OTg0Mzc1IEwgNTMuNjg3NTAxOTA3MzQ4NjMsMjU1LjA4OTg0Mzc1IiBmaWxsPSJub25lIiBzdHJva2U9IiMxMzEzMDAiIHN0cm9rZS13aWR0aD0iMiIvPjxwYXRoIGQ9Ik0gNTguNjg3NTAxOTA3MzQ4NjMsMjk1Ljg3MTg3NSBMIDUzLjY4NzUwMTkwNzM0ODYzLDI5NS44NzE4NzUiIGZpbGw9Im5vbmUiIHN0cm9rZT0iIzEzMTMwMCIgc3Ryb2tlLXdpZHRoPSIyIi8+PHBhdGggZD0iTSA1OC42ODc1MDE5MDczNDg2MywzMzYuNjUzOTA2MjUgTCA1My42ODc1MDE5MDczNDg2MywzMzYuNjUzOTA2MjUiIGZpbGw9Im5vbmUiIHN0cm9rZT0iIzEzMTMwMCIgc3Ryb2tlLXdpZHRoPSIyIi8+PHBhdGggZD0iTSA1OC42ODc1MDE5MDczNDg2MywzNzcuNDM1OTM3NSBMIDUzLjY4NzUwMTkwNzM0ODYzLDM3Ny40MzU5Mzc1IiBmaWxsPSJub25lIiBzdHJva2U9IiMxMzEzMDAiIHN0cm9rZS13aWR0aD0iMiIvPjxwYXRoIGQ9Ik0gNTguNjg3NTAxOTA3MzQ4NjMsNDE4LjIxNzk2ODc1IEwgNTMuNjg3NTAxOTA3MzQ4NjMsNDE4LjIxNzk2ODc1IiBmaWxsPSJub25lIiBzdHJva2U9IiMxMzEzMDAiIHN0cm9rZS13aWR0aD0iMiIvPjxwYXRoIGQ9Ik0gNTguNjg3NTAxOTA3MzQ4NjMsNDU5IEwgNTMuNjg3NTAxOTA3MzQ4NjMsNDU5IiBmaWxsPSJub25lIiBzdHJva2U9IiMxMzEzMDAiIHN0cm9rZS13aWR0aD0iMiIvPjwvZz48ZyBjbGFzcz0idGl0bGUiPjx0ZXh0IHg9IjAiIHk9IjAiIGZpbGw9IiMxMzEzMDAiIGZvbnQtc2l6ZT0iMTYiIGRvbWluYW50LWJhc2VsaW5lPSJ0ZXh0LWJlZm9yZS1lZGdlIiB0ZXh0LWFuY2hvcj0ibWlkZGxlIiB0cmFuc2Zvcm09InRyYW5zbGF0ZSg1LCAyNTUuMDg5ODQzNzUpIHJvdGF0ZSgyNzApIj50aW1lcyBmYXN0ZXI8L3RleHQ+PC9nPjwvZz48L2c+PGcgY2xhc3M9Im1lcm1haWQtdG1wLWdyb3VwIi8+PC9zdmc+" alt /></p>
+<p>At small sizes, most of the time is spent on round trips between CPU
+and GPU: phase one returns to the host after every iteration. At 1
+million keys the GPU is busy only 32% of the time; at 64 million, 90%.
+So the larger the input, the more the GPU’s raw throughput shows.</p>
+<h3 id="a-lesson-from-measurement-choosing-the-right-pivot">A lesson
+from measurement: choosing the right pivot</h3>
+<p>The first version used the <em>median of three</em> keys as its
+phase-one pivot, a common textbook choice. On the <code>staggered</code>
+input at 64 million keys, it needed about <strong>47</strong> phase-one
+iterations and took between 367 and 593 ms, varying widely from run to
+run. The medians split <code>staggered</code>’s interleaved value ranges
+very unevenly, so some huge sequences reached phase two, where a single
+threadgroup must sort each one alone.</p>
+<p>The paper’s experiments used a different pivot: the <strong>average
+of the smallest and largest key</strong> in the sequence. The GPU
+collects those two values almost for free while partitioning. With that
+pivot, <code>staggered</code> needs <strong>14</strong> iterations and
+takes <strong>45 ms</strong>, and every other distribution got faster
+too, by 1.08× to 1.57×. The spec was revised (v0.5) to make it the
+default.</p>
+<hr />
+<h2 id="how-do-we-know-it-is-correct">5. How do we know it is
+correct?</h2>
+<p>Sorting bugs on a GPU are hard to catch. A race between threads may
+appear only on a particular input, at a particular size, in a particular
+timing. So this project builds its evidence in layers, each covering a
+different gap:</p>
+<p><img role="img" aria-label src="data:image/svg+xml;base64,PHN2ZyBpZD0ibXktc3ZnIiB3aWR0aD0iMTAwJSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIiB4bWxuczp4bGluaz0iaHR0cDovL3d3dy53My5vcmcvMTk5OS94bGluayIgc3R5bGU9Im1heC13aWR0aDogNTY4LjYzM3B4OyBiYWNrZ3JvdW5kLWNvbG9yOiB3aGl0ZTsiIHZpZXdCb3g9Ii04IC04IDU2OC42MzI4MTI1IDM1MSIgcm9sZT0iZ3JhcGhpY3MtZG9jdW1lbnQgZG9jdW1lbnQiIGFyaWEtcm9sZWRlc2NyaXB0aW9uPSJmbG93Y2hhcnQtdjIiPjxzdHlsZT4jbXktc3Zne2ZvbnQtZmFtaWx5OiJ0cmVidWNoZXQgbXMiLHZlcmRhbmEsYXJpYWwsc2Fucy1zZXJpZjtmb250LXNpemU6MTZweDtmaWxsOiMzMzM7fSNteS1zdmcgLmVycm9yLWljb257ZmlsbDojNTUyMjIyO30jbXktc3ZnIC5lcnJvci10ZXh0e2ZpbGw6IzU1MjIyMjtzdHJva2U6IzU1MjIyMjt9I215LXN2ZyAuZWRnZS10aGlja25lc3Mtbm9ybWFse3N0cm9rZS13aWR0aDoycHg7fSNteS1zdmcgLmVkZ2UtdGhpY2tuZXNzLXRoaWNre3N0cm9rZS13aWR0aDozLjVweDt9I215LXN2ZyAuZWRnZS1wYXR0ZXJuLXNvbGlke3N0cm9rZS1kYXNoYXJyYXk6MDt9I215LXN2ZyAuZWRnZS1wYXR0ZXJuLWRhc2hlZHtzdHJva2UtZGFzaGFycmF5OjM7fSNteS1zdmcgLmVkZ2UtcGF0dGVybi1kb3R0ZWR7c3Ryb2tlLWRhc2hhcnJheToyO30jbXktc3ZnIC5tYXJrZXJ7ZmlsbDojMzMzMzMzO3N0cm9rZTojMzMzMzMzO30jbXktc3ZnIC5tYXJrZXIuY3Jvc3N7c3Ryb2tlOiMzMzMzMzM7fSNteS1zdmcgc3Zne2ZvbnQtZmFtaWx5OiJ0cmVidWNoZXQgbXMiLHZlcmRhbmEsYXJpYWwsc2Fucy1zZXJpZjtmb250LXNpemU6MTZweDt9I215LXN2ZyAubGFiZWx7Zm9udC1mYW1pbHk6InRyZWJ1Y2hldCBtcyIsdmVyZGFuYSxhcmlhbCxzYW5zLXNlcmlmO2NvbG9yOiMzMzM7fSNteS1zdmcgLmNsdXN0ZXItbGFiZWwgdGV4dHtmaWxsOiMzMzM7fSNteS1zdmcgLmNsdXN0ZXItbGFiZWwgc3BhbiwjbXktc3ZnIHB7Y29sb3I6IzMzMzt9I215LXN2ZyAubGFiZWwgdGV4dCwjbXktc3ZnIHNwYW4sI215LXN2ZyBwe2ZpbGw6IzMzMztjb2xvcjojMzMzO30jbXktc3ZnIC5ub2RlIHJlY3QsI215LXN2ZyAubm9kZSBjaXJjbGUsI215LXN2ZyAubm9kZSBlbGxpcHNlLCNteS1zdmcgLm5vZGUgcG9seWdvbiwjbXktc3ZnIC5ub2RlIHBhdGh7ZmlsbDojRUNFQ0ZGO3N0cm9rZTojOTM3MERCO3N0cm9rZS13aWR0aDoxcHg7fSNteS1zdmcgLmZsb3djaGFydC1sYWJlbCB0ZXh0e3RleHQtYW5jaG9yOm1pZGRsZTt9I215LXN2ZyAubm9kZSAua2F0ZXggcGF0aHtmaWxsOiMwMDA7c3Ryb2tlOiMwMDA7c3Ryb2tlLXdpZHRoOjFweDt9I215LXN2ZyAubm9kZSAubGFiZWx7dGV4dC1hbGlnbjpjZW50ZXI7fSNteS1zdmcgLm5vZGUuY2xpY2thYmxle2N1cnNvcjpwb2ludGVyO30jbXktc3ZnIC5hcnJvd2hlYWRQYXRoe2ZpbGw6IzMzMzMzMzt9I215LXN2ZyAuZWRnZVBhdGggLnBhdGh7c3Ryb2tlOiMzMzMzMzM7c3Ryb2tlLXdpZHRoOjIuMHB4O30jbXktc3ZnIC5mbG93Y2hhcnQtbGlua3tzdHJva2U6IzMzMzMzMztmaWxsOm5vbmU7fSNteS1zdmcgLmVkZ2VMYWJlbHtiYWNrZ3JvdW5kLWNvbG9yOiNlOGU4ZTg7dGV4dC1hbGlnbjpjZW50ZXI7fSNteS1zdmcgLmVkZ2VMYWJlbCByZWN0e29wYWNpdHk6MC41O2JhY2tncm91bmQtY29sb3I6I2U4ZThlODtmaWxsOiNlOGU4ZTg7fSNteS1zdmcgLmxhYmVsQmtne2JhY2tncm91bmQtY29sb3I6cmdiYSgyMzIsIDIzMiwgMjMyLCAwLjUpO30jbXktc3ZnIC5jbHVzdGVyIHJlY3R7ZmlsbDojZmZmZmRlO3N0cm9rZTojYWFhYTMzO3N0cm9rZS13aWR0aDoxcHg7fSNteS1zdmcgLmNsdXN0ZXIgdGV4dHtmaWxsOiMzMzM7fSNteS1zdmcgLmNsdXN0ZXIgc3BhbiwjbXktc3ZnIHB7Y29sb3I6IzMzMzt9I215LXN2ZyBkaXYubWVybWFpZFRvb2x0aXB7cG9zaXRpb246YWJzb2x1dGU7dGV4dC1hbGlnbjpjZW50ZXI7bWF4LXdpZHRoOjIwMHB4O3BhZGRpbmc6MnB4O2ZvbnQtZmFtaWx5OiJ0cmVidWNoZXQgbXMiLHZlcmRhbmEsYXJpYWwsc2Fucy1zZXJpZjtmb250LXNpemU6MTJweDtiYWNrZ3JvdW5kOmhzbCg4MCwgMTAwJSwgOTYuMjc0NTA5ODAzOSUpO2JvcmRlcjoxcHggc29saWQgI2FhYWEzMztib3JkZXItcmFkaXVzOjJweDtwb2ludGVyLWV2ZW50czpub25lO3otaW5kZXg6MTAwO30jbXktc3ZnIC5mbG93Y2hhcnRUaXRsZVRleHR7dGV4dC1hbmNob3I6bWlkZGxlO2ZvbnQtc2l6ZToxOHB4O2ZpbGw6IzMzMzt9I215LXN2ZyA6cm9vdHstLW1lcm1haWQtZm9udC1mYW1pbHk6InRyZWJ1Y2hldCBtcyIsdmVyZGFuYSxhcmlhbCxzYW5zLXNlcmlmO308L3N0eWxlPjxnPjxtYXJrZXIgaWQ9Im15LXN2Z19mbG93Y2hhcnQtcG9pbnRFbmQiIGNsYXNzPSJtYXJrZXIgZmxvd2NoYXJ0IiB2aWV3Qm94PSIwIDAgMTAgMTAiIHJlZlg9IjYiIHJlZlk9IjUiIG1hcmtlclVuaXRzPSJ1c2VyU3BhY2VPblVzZSIgbWFya2VyV2lkdGg9IjEyIiBtYXJrZXJIZWlnaHQ9IjEyIiBvcmllbnQ9ImF1dG8iPjxwYXRoIGQ9Ik0gMCAwIEwgMTAgNSBMIDAgMTAgeiIgY2xhc3M9ImFycm93TWFya2VyUGF0aCIgc3R5bGU9InN0cm9rZS13aWR0aDogMTsgc3Ryb2tlLWRhc2hhcnJheTogMSwgMDsiLz48L21hcmtlcj48bWFya2VyIGlkPSJteS1zdmdfZmxvd2NoYXJ0LXBvaW50U3RhcnQiIGNsYXNzPSJtYXJrZXIgZmxvd2NoYXJ0IiB2aWV3Qm94PSIwIDAgMTAgMTAiIHJlZlg9IjQuNSIgcmVmWT0iNSIgbWFya2VyVW5pdHM9InVzZXJTcGFjZU9uVXNlIiBtYXJrZXJXaWR0aD0iMTIiIG1hcmtlckhlaWdodD0iMTIiIG9yaWVudD0iYXV0byI+PHBhdGggZD0iTSAwIDUgTCAxMCAxMCBMIDEwIDAgeiIgY2xhc3M9ImFycm93TWFya2VyUGF0aCIgc3R5bGU9InN0cm9rZS13aWR0aDogMTsgc3Ryb2tlLWRhc2hhcnJheTogMSwgMDsiLz48L21hcmtlcj48bWFya2VyIGlkPSJteS1zdmdfZmxvd2NoYXJ0LWNpcmNsZUVuZCIgY2xhc3M9Im1hcmtlciBmbG93Y2hhcnQiIHZpZXdCb3g9IjAgMCAxMCAxMCIgcmVmWD0iMTEiIHJlZlk9IjUiIG1hcmtlclVuaXRzPSJ1c2VyU3BhY2VPblVzZSIgbWFya2VyV2lkdGg9IjExIiBtYXJrZXJIZWlnaHQ9IjExIiBvcmllbnQ9ImF1dG8iPjxjaXJjbGUgY3g9IjUiIGN5PSI1IiByPSI1IiBjbGFzcz0iYXJyb3dNYXJrZXJQYXRoIiBzdHlsZT0ic3Ryb2tlLXdpZHRoOiAxOyBzdHJva2UtZGFzaGFycmF5OiAxLCAwOyIvPjwvbWFya2VyPjxtYXJrZXIgaWQ9Im15LXN2Z19mbG93Y2hhcnQtY2lyY2xlU3RhcnQiIGNsYXNzPSJtYXJrZXIgZmxvd2NoYXJ0IiB2aWV3Qm94PSIwIDAgMTAgMTAiIHJlZlg9Ii0xIiByZWZZPSI1IiBtYXJrZXJVbml0cz0idXNlclNwYWNlT25Vc2UiIG1hcmtlcldpZHRoPSIxMSIgbWFya2VySGVpZ2h0PSIxMSIgb3JpZW50PSJhdXRvIj48Y2lyY2xlIGN4PSI1IiBjeT0iNSIgcj0iNSIgY2xhc3M9ImFycm93TWFya2VyUGF0aCIgc3R5bGU9InN0cm9rZS13aWR0aDogMTsgc3Ryb2tlLWRhc2hhcnJheTogMSwgMDsiLz48L21hcmtlcj48bWFya2VyIGlkPSJteS1zdmdfZmxvd2NoYXJ0LWNyb3NzRW5kIiBjbGFzcz0ibWFya2VyIGNyb3NzIGZsb3djaGFydCIgdmlld0JveD0iMCAwIDExIDExIiByZWZYPSIxMiIgcmVmWT0iNS4yIiBtYXJrZXJVbml0cz0idXNlclNwYWNlT25Vc2UiIG1hcmtlcldpZHRoPSIxMSIgbWFya2VySGVpZ2h0PSIxMSIgb3JpZW50PSJhdXRvIj48cGF0aCBkPSJNIDEsMSBsIDksOSBNIDEwLDEgbCAtOSw5IiBjbGFzcz0iYXJyb3dNYXJrZXJQYXRoIiBzdHlsZT0ic3Ryb2tlLXdpZHRoOiAyOyBzdHJva2UtZGFzaGFycmF5OiAxLCAwOyIvPjwvbWFya2VyPjxtYXJrZXIgaWQ9Im15LXN2Z19mbG93Y2hhcnQtY3Jvc3NTdGFydCIgY2xhc3M9Im1hcmtlciBjcm9zcyBmbG93Y2hhcnQiIHZpZXdCb3g9IjAgMCAxMSAxMSIgcmVmWD0iLTEiIHJlZlk9IjUuMiIgbWFya2VyVW5pdHM9InVzZXJTcGFjZU9uVXNlIiBtYXJrZXJXaWR0aD0iMTEiIG1hcmtlckhlaWdodD0iMTEiIG9yaWVudD0iYXV0byI+PHBhdGggZD0iTSAxLDEgbCA5LDkgTSAxMCwxIGwgLTksOSIgY2xhc3M9ImFycm93TWFya2VyUGF0aCIgc3R5bGU9InN0cm9rZS13aWR0aDogMjsgc3Ryb2tlLWRhc2hhcnJheTogMSwgMDsiLz48L21hcmtlcj48ZyBjbGFzcz0icm9vdCI+PGcgY2xhc3M9ImNsdXN0ZXJzIi8+PGcgY2xhc3M9ImVkZ2VQYXRocyI+PHBhdGggZD0iTTE5My4wNCw1M0wxODEuMjcsNTcuMTY3QzE2OS41LDYxLjMzMywxNDUuOTYxLDY5LjY2NywxMzQuMTkyLDc4LjdDMTIyLjQyMiw4Ny43MzMsMTIyLjQyMiw5Ny40NjcsMTIyLjQyMiwxMDIuMzMzTDEyMi40MjIsMTA3LjIiIGlkPSJMLXNwZWMtdGVzdHMtMCIgY2xhc3M9ImVkZ2UtdGhpY2tuZXNzLW5vcm1hbCBlZGdlLXBhdHRlcm4tc29saWQgZmxvd2NoYXJ0LWxpbmsgTFMtc3BlYyBMRS10ZXN0cyIgc3R5bGU9ImZpbGw6bm9uZTsiIG1hcmtlci1lbmQ9InVybCgjbXktc3ZnX2Zsb3djaGFydC1wb2ludEVuZCkiLz48cGF0aCBkPSJNMzQyLjc0OSw1M0wzNTQuNTE5LDU3LjE2N0MzNjYuMjg5LDYxLjMzMywzODkuODI4LDY5LjY2Nyw0MDEuNTk4LDc3LjExN0M0MTMuMzY3LDg0LjU2Nyw0MTMuMzY3LDkxLjEzMyw0MTMuMzY3LDk0LjQxN0w0MTMuMzY3LDk3LjciIGlkPSJMLXNwZWMtbW9kZWwtMCIgY2xhc3M9ImVkZ2UtdGhpY2tuZXNzLW5vcm1hbCBlZGdlLXBhdHRlcm4tc29saWQgZmxvd2NoYXJ0LWxpbmsgTFMtc3BlYyBMRS1tb2RlbCIgc3R5bGU9ImZpbGw6bm9uZTsiIG1hcmtlci1lbmQ9InVybCgjbXktc3ZnX2Zsb3djaGFydC1wb2ludEVuZCkiLz48cGF0aCBkPSJNNDEzLjM2NywxOTRMNDEzLjM2NywxOTguMTY3QzQxMy4zNjcsMjAyLjMzMyw0MTMuMzY3LDIxMC42NjcsNDEzLjM2NywyMTguMTE3QzQxMy4zNjcsMjI1LjU2Nyw0MTMuMzY3LDIzMi4xMzMsNDEzLjM2NywyMzUuNDE3TDQxMy4zNjcsMjM4LjciIGlkPSJMLW1vZGVsLWNvZGUtMCIgY2xhc3M9ImVkZ2UtdGhpY2tuZXNzLW5vcm1hbCBlZGdlLXBhdHRlcm4tc29saWQgZmxvd2NoYXJ0LWxpbmsgTFMtbW9kZWwgTEUtY29kZSIgc3R5bGU9ImZpbGw6bm9uZTsiIG1hcmtlci1lbmQ9InVybCgjbXktc3ZnX2Zsb3djaGFydC1wb2ludEVuZCkiLz48L2c+PGcgY2xhc3M9ImVkZ2VMYWJlbHMiPjxnIGNsYXNzPSJlZGdlTGFiZWwiPjxnIGNsYXNzPSJsYWJlbCIgdHJhbnNmb3JtPSJ0cmFuc2xhdGUoMCwgMCkiPjxmb3JlaWduT2JqZWN0IHdpZHRoPSIwIiBoZWlnaHQ9IjAiPjxkaXYgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzE5OTkveGh0bWwiIHN0eWxlPSJkaXNwbGF5OiBpbmxpbmUtYmxvY2s7IHdoaXRlLXNwYWNlOiBub3dyYXA7Ij48c3BhbiBjbGFzcz0iZWRnZUxhYmVsIj48L3NwYW4+PC9kaXY+PC9mb3JlaWduT2JqZWN0PjwvZz48L2c+PGcgY2xhc3M9ImVkZ2VMYWJlbCI+PGcgY2xhc3M9ImxhYmVsIiB0cmFuc2Zvcm09InRyYW5zbGF0ZSgwLCAwKSI+PGZvcmVpZ25PYmplY3Qgd2lkdGg9IjAiIGhlaWdodD0iMCI+PGRpdiB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMTk5OS94aHRtbCIgc3R5bGU9ImRpc3BsYXk6IGlubGluZS1ibG9jazsgd2hpdGUtc3BhY2U6IG5vd3JhcDsiPjxzcGFuIGNsYXNzPSJlZGdlTGFiZWwiPjwvc3Bhbj48L2Rpdj48L2ZvcmVpZ25PYmplY3Q+PC9nPjwvZz48ZyBjbGFzcz0iZWRnZUxhYmVsIj48ZyBjbGFzcz0ibGFiZWwiIHRyYW5zZm9ybT0idHJhbnNsYXRlKDAsIDApIj48Zm9yZWlnbk9iamVjdCB3aWR0aD0iMCIgaGVpZ2h0PSIwIj48ZGl2IHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8xOTk5L3hodG1sIiBzdHlsZT0iZGlzcGxheTogaW5saW5lLWJsb2NrOyB3aGl0ZS1zcGFjZTogbm93cmFwOyI+PHNwYW4gY2xhc3M9ImVkZ2VMYWJlbCI+PC9zcGFuPjwvZGl2PjwvZm9yZWlnbk9iamVjdD48L2c+PC9nPjwvZz48ZyBjbGFzcz0ibm9kZXMiPjxnIGNsYXNzPSJub2RlIGRlZmF1bHQgZGVmYXVsdCBmbG93Y2hhcnQtbGFiZWwiIGlkPSJmbG93Y2hhcnQtc3BlYy0wIiBkYXRhLW5vZGU9InRydWUiIGRhdGEtaWQ9InNwZWMiIHRyYW5zZm9ybT0idHJhbnNsYXRlKDI2Ny44OTQ1MzEyNSwgMjYuNSkiPjxyZWN0IGNsYXNzPSJiYXNpYyBsYWJlbC1jb250YWluZXIiIHN0eWxlPSIiIHJ4PSIwIiByeT0iMCIgeD0iLTEyMS41MDc4MTI1IiB5PSItMjYuNSIgd2lkdGg9IjI0My4wMTU2MjUiIGhlaWdodD0iNTMiLz48ZyBjbGFzcz0ibGFiZWwiIHN0eWxlPSIiIHRyYW5zZm9ybT0idHJhbnNsYXRlKC0xMTQuMDA3ODEyNSwgLTE5KSI+PHJlY3QvPjxmb3JlaWduT2JqZWN0IHdpZHRoPSIyMjguMDE1NjI1IiBoZWlnaHQ9IjM4Ij48ZGl2IHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8xOTk5L3hodG1sIiBzdHlsZT0iZGlzcGxheTogaW5saW5lLWJsb2NrOyB3aGl0ZS1zcGFjZTogbm93cmFwOyI+PHNwYW4gY2xhc3M9Im5vZGVMYWJlbCI+U1BFQy5tZDxiciAvPjxpPnRoZSBjb250cmFjdDogMTI4IG51bWJlcmVkIGlkczwvaT48L3NwYW4+PC9kaXY+PC9mb3JlaWduT2JqZWN0PjwvZz48L2c+PGcgY2xhc3M9Im5vZGUgZGVmYXVsdCBkZWZhdWx0IGZsb3djaGFydC1sYWJlbCIgaWQ9ImZsb3djaGFydC10ZXN0cy0xIiBkYXRhLW5vZGU9InRydWUiIGRhdGEtaWQ9InRlc3RzIiB0cmFuc2Zvcm09InRyYW5zbGF0ZSgxMjIuNDIxODc1LCAxNDguNSkiPjxyZWN0IGNsYXNzPSJiYXNpYyBsYWJlbC1jb250YWluZXIiIHN0eWxlPSIiIHJ4PSIwIiByeT0iMCIgeD0iLTEyMi40MjE4NzUiIHk9Ii0zNiIgd2lkdGg9IjI0NC44NDM3NSIgaGVpZ2h0PSI3MiIvPjxnIGNsYXNzPSJsYWJlbCIgc3R5bGU9IiIgdHJhbnNmb3JtPSJ0cmFuc2xhdGUoLTExNC45MjE4NzUsIC0yOC41KSI+PHJlY3QvPjxmb3JlaWduT2JqZWN0IHdpZHRoPSIyMjkuODQzNzUiIGhlaWdodD0iNTciPjxkaXYgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzE5OTkveGh0bWwiIHN0eWxlPSJkaXNwbGF5OiBpbmxpbmUtYmxvY2s7IHdoaXRlLXNwYWNlOiBub3dyYXA7Ij48c3BhbiBjbGFzcz0ibm9kZUxhYmVsIj5UZXN0cyBhbmQgc3BlY2NoZWNrPGJyIC8+PGk+dGhlIHJlYWwgYmluYXJpZXMgb24gYSByZWFsIEdQVSw8YnIgLz5vbiBzYW1wbGVkIGlucHV0czwvaT48L3NwYW4+PC9kaXY+PC9mb3JlaWduT2JqZWN0PjwvZz48L2c+PGcgY2xhc3M9Im5vZGUgZGVmYXVsdCBkZWZhdWx0IGZsb3djaGFydC1sYWJlbCIgaWQ9ImZsb3djaGFydC1tb2RlbC0yIiBkYXRhLW5vZGU9InRydWUiIGRhdGEtaWQ9Im1vZGVsIiB0cmFuc2Zvcm09InRyYW5zbGF0ZSg0MTMuMzY3MTg3NSwgMTQ4LjUpIj48cmVjdCBjbGFzcz0iYmFzaWMgbGFiZWwtY29udGFpbmVyIiBzdHlsZT0iIiByeD0iMCIgcnk9IjAiIHg9Ii0xMTguNTIzNDM3NSIgeT0iLTQ1LjUiIHdpZHRoPSIyMzcuMDQ2ODc1IiBoZWlnaHQ9IjkxIi8+PGcgY2xhc3M9ImxhYmVsIiBzdHlsZT0iIiB0cmFuc2Zvcm09InRyYW5zbGF0ZSgtMTExLjAyMzQzNzUsIC0zOCkiPjxyZWN0Lz48Zm9yZWlnbk9iamVjdCB3aWR0aD0iMjIyLjA0Njg3NSIgaGVpZ2h0PSI3NiI+PGRpdiB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMTk5OS94aHRtbCIgc3R5bGU9ImRpc3BsYXk6IGlubGluZS1ibG9jazsgd2hpdGUtc3BhY2U6IG5vd3JhcDsiPjxzcGFuIGNsYXNzPSJub2RlTGFiZWwiPkxlYW46IHRoZSBzcGVjIG1vZGVsPGJyIC8+PGk+dGhlIHNwZWNpZmljYXRpb24gaXMgY29uc2lzdGVudDxiciAvPmFuZCBpdHMgYWxnb3JpdGhtcyBhcmUgY29ycmVjdCw8YnIgLz5mb3IgYWxsIGlucHV0czwvaT48L3NwYW4+PC9kaXY+PC9mb3JlaWduT2JqZWN0PjwvZz48L2c+PGcgY2xhc3M9Im5vZGUgZGVmYXVsdCBkZWZhdWx0IGZsb3djaGFydC1sYWJlbCIgaWQ9ImZsb3djaGFydC1jb2RlLTMiIGRhdGEtbm9kZT0idHJ1ZSIgZGF0YS1pZD0iY29kZSIgdHJhbnNmb3JtPSJ0cmFuc2xhdGUoNDEzLjM2NzE4NzUsIDI4OS41KSI+PHJlY3QgY2xhc3M9ImJhc2ljIGxhYmVsLWNvbnRhaW5lciIgc3R5bGU9IiIgcng9IjAiIHJ5PSIwIiB4PSItMTM5LjI2NTYyNSIgeT0iLTQ1LjUiIHdpZHRoPSIyNzguNTMxMjUiIGhlaWdodD0iOTEiLz48ZyBjbGFzcz0ibGFiZWwiIHN0eWxlPSIiIHRyYW5zZm9ybT0idHJhbnNsYXRlKC0xMzEuNzY1NjI1LCAtMzgpIj48cmVjdC8+PGZvcmVpZ25PYmplY3Qgd2lkdGg9IjI2My41MzEyNSIgaGVpZ2h0PSI3NiI+PGRpdiB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMTk5OS94aHRtbCIgc3R5bGU9ImRpc3BsYXk6IGlubGluZS1ibG9jazsgd2hpdGUtc3BhY2U6IG5vd3JhcDsiPjxzcGFuIGNsYXNzPSJub2RlTGFiZWwiPkxlYW46IHRoZSBjb2RlIHByb29mPGJyIC8+PGk+YSB0cmFuc2NyaXB0aW9uIG9mIHRoZSBzb3VyY2U8YnIgLz5tZWV0cyB0aGUgc3BlYyBtb2RlbCwgZm9yIGFsbCBpbnB1dHM8YnIgLz5hbmQgZXZlcnkgYXRvbWljIG9yZGVyPC9pPjwvc3Bhbj48L2Rpdj48L2ZvcmVpZ25PYmplY3Q+PC9nPjwvZz48L2c+PC9nPjwvZz48L3N2Zz4=" alt /></p>
+<h3 id="layer-1-tests-against-the-spec">Layer 1: tests against the
+spec</h3>
+<p>There are 56 tests. Each one names the spec ids it checks, and the
+<code>speccheck</code> tool confirms that every id is realized by a test
+that passes. Its final verdict: <strong>CONFORMING, 128 of 128
+ids</strong>. This was checked twice, once by exact matching and once
+with an independent language-model judge.</p>
+<p>Tests run the real code on a real GPU. They cover every input
+distribution, every key type, sizes up to 64 million, every error path,
+and the command-line interface. But tests only ever see <em>some</em>
+inputs.</p>
+<h3 id="layer-2-proving-the-specification">Layer 2: proving the
+specification</h3>
+<p><a href="https://github.com/rioffe/gpu-quicksort-revisited/blob/main/proof_from_spec/README.md"><code>proof_from_spec/</code></a>
+turns the specification itself into <a href="https://lean-lang.org/">Lean 4</a>, a programming language and
+theorem prover. There, the spec’s tables become functions and its claims
+become theorems. Lean’s kernel checks every proof mechanically for
+<strong>all</strong> inputs, not a sample.</p>
+<p>The main results, in plain terms:</p>
+<ul>
+<li><strong>The two phases together sort.</strong> Phase one partitions
+the keys, and phase two sorts every resulting sequence. Together they
+write every position exactly once, with its final value. This holds for
+any pivot rule and any parameter values.</li>
+<li><strong>The parallel partition is correct.</strong> Per-thread
+counts, a prefix sum, and one atomic per side per threadgroup always
+produce a correct partition. This holds however the keys are divided
+among threads, and in whatever order the atomics happen to run.</li>
+<li><strong>The phase-two stack cannot overflow.</strong> Processing the
+shorter part first bounds the stack depth for a sequence of length
+<math display="inline" xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mi>ℓ</mi><annotation encoding="application/x-tex">\ell</annotation></semantics></math>:
+<math display="block" xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mtext mathvariant="normal">depth</mtext><mspace width="0.278em"></mspace><mo>≤</mo><mspace width="0.278em"></mspace><mrow><mo stretchy="true" form="prefix">⌊</mo><msub><mrow><mi mathvariant="normal">log</mi><mo>⁡</mo></mrow><mn>2</mn></msub><mfrac><mi>ℓ</mi><mtext mathvariant="normal">minseq</mtext></mfrac><mo stretchy="true" form="postfix">⌋</mo></mrow><mo>+</mo><mn>1</mn><mspace width="0.278em"></mspace><mo>≤</mo><mspace width="0.278em"></mspace><mn>25</mn><mspace width="0.278em"></mspace><mo>&lt;</mo><mspace width="0.278em"></mspace><mn>32</mn><mi>.</mi></mrow><annotation encoding="application/x-tex">
+\text{depth} \;\le\; \left\lfloor \log_2 \frac{\ell}{\text{minseq}} \right\rfloor + 1 \;\le\; 25 \;&lt;\; 32 .
+</annotation></semantics></math></li>
+<li><strong>The bitonic network sorts</strong> every power-of-two
+length, using the kernel’s own loop structure.</li>
+<li><strong>The key codes preserve order.</strong> The integer and float
+mappings are reversible, and comparing codes as unsigned numbers gives
+exactly signed order and IEEE 754 total order.</li>
+</ul>
+<p>Modeling the spec also surfaced one new imprecision (F-034): two rows
+of the spec’s lifecycle table can both apply to the same input, and the
+spec does not say which one wins.</p>
+<h3 id="layer-3-proving-the-code">Layer 3: proving the code</h3>
+<p><a href="https://github.com/rioffe/gpu-quicksort-revisited/blob/main/proof/README.md"><code>proof/</code></a>
+goes one step further. It <strong>transcribes the Swift and Metal source
+into Lean</strong>, line by line, and proves that the transcription
+refines the spec model. The kernels, the host loop, the parameter
+resolver and the key codec are all included.</p>
+<p>GPU atomics are the hard part. When many threadgroups race to claim
+output space, the order in which their atomic operations take effect
+differs from run to run. The proof does not assume any particular order;
+its theorems hold <strong>for every possible one</strong>.</p>
+<p>The headline theorem, <code>sortRunSpec</code>, says roughly this.
+Take any number of keys
+<math display="inline" xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mi>n</mi><annotation encoding="application/x-tex">n</annotation></semantics></math>
+with
+<math display="inline" xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mn>2</mn><mo>≤</mo><mi>n</mi><mo>≤</mo><msup><mn>2</mn><mn>31</mn></msup><mo>−</mo><mn>1</mn></mrow><annotation encoding="application/x-tex">2 \le n \le 2^{31}-1</annotation></semantics></math>,
+any valid parameters, and any order of the atomics. Then the host’s
+<code>run</code> finishes without an internal error, and afterwards</p>
+<p><math display="block" xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><msup><mi>D</mi><mo>′</mo></msup><mo stretchy="false" form="prefix">[</mo><mi>i</mi><mo stretchy="false" form="postfix">]</mo><mspace width="0.278em"></mspace><mo>=</mo><mspace width="0.278em"></mspace><mtext mathvariant="normal">decode</mtext><mo minsize="120%" maxsize="120%" stretchy="true" form="prefix">(</mo><mspace width="0.167em"></mspace><mtext mathvariant="normal">sort</mtext><mo stretchy="false" form="prefix">(</mo><mtext mathvariant="normal">encode</mtext><mo stretchy="false" form="prefix">(</mo><mi>D</mi><mo stretchy="false" form="prefix">[</mo><mn>0</mn><mi>.</mi><mi>.</mi><mi>n</mi><mo stretchy="false" form="postfix">)</mo><mo stretchy="false" form="postfix">)</mo><mo stretchy="false" form="postfix">)</mo><mo stretchy="false" form="prefix">[</mo><mi>i</mi><mo stretchy="false" form="postfix">]</mo><mspace width="0.167em"></mspace><mo minsize="120%" maxsize="120%" stretchy="true" form="postfix">)</mo><mspace width="1.0em"></mspace><mrow><mtext mathvariant="normal">for </mtext><mspace width="0.333em"></mspace></mrow><mn>0</mn><mo>≤</mo><mi>i</mi><mo>&lt;</mo><mi>n</mi><mo>,</mo><mspace width="2.0em"></mspace><msup><mi>D</mi><mo>′</mo></msup><mo stretchy="false" form="prefix">[</mo><mi>j</mi><mo stretchy="false" form="postfix">]</mo><mo>=</mo><mi>D</mi><mo stretchy="false" form="prefix">[</mo><mi>j</mi><mo stretchy="false" form="postfix">]</mo><mspace width="1.0em"></mspace><mrow><mtext mathvariant="normal">for </mtext><mspace width="0.333em"></mspace></mrow><mi>j</mi><mo>≥</mo><mi>n</mi><mi>.</mi></mrow><annotation encoding="application/x-tex">
+D&#39;[i] \;=\; \text{decode}\bigl(\,\text{sort}(\text{encode}(D[0..n)))[i]\,\bigr) \quad \text{for } 0 \le i &lt; n,
+\qquad
+D&#39;[j] = D[j] \quad \text{for } j \ge n .
+</annotation></semantics></math></p>
+<p>In words: the output is the input, sorted in the right order for its
+key type. Nothing outside the
+<math display="inline" xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mi>n</mi><annotation encoding="application/x-tex">n</annotation></semantics></math>
+keys is touched, and every position is finalized exactly once. Further
+theorems show that the bookkeeping buffers are never overrun, and that
+every step of the algorithm makes progress.</p>
+<h3 id="being-honest-about-what-is-proven">Being honest about what is
+proven</h3>
+<p>A proof is only as good as its assumptions, and the repository states
+them plainly:</p>
+<ul>
+<li><strong>Lean proves a transcription of the code, not the files
+themselves.</strong> Lean cannot read Swift or Metal. Each model file
+opens with a table that maps every source line to its Lean counterpart;
+that mapping is checked by people, not by the machine.</li>
+<li><strong>The proofs assume the hardware keeps its promises</strong>:
+that barriers and atomics behave as Metal documents them.</li>
+<li><strong>Some requirements are outside a proof’s reach</strong>:
+timing, memory allocation, driver errors, the exact bytes on disk. Of
+the 88 behavioral ids, 52 are proven against the code, 35 are carried by
+named tests, and 1 is retired. Every id is accounted for in exactly one
+place.</li>
+</ul>
+<p>The layers work together. The proofs cover <em>all</em> inputs, but
+only of a model. The tests cover the <em>real</em> system, but only some
+inputs. Where a requirement has both halves, both are recorded.</p>
+<hr />
+<h2 id="what-was-found-along-the-way">6. What was found along the
+way</h2>
+<p>Each stage of the process caught problems the earlier ones had
+missed:</p>
+<table>
+<colgroup>
+<col style="width: 33%" />
+<col style="width: 33%" />
+<col style="width: 33%" />
+</colgroup>
+<thead>
+<tr>
+<th>Stage</th>
+<th>Found</th>
+<th>Example</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Spec review, round 1</td>
+<td>F-001 to F-019</td>
+<td>no way to bootstrap the tuning table on a GPU that has never been
+tuned</td>
+</tr>
+<tr>
+<td>Spec review, round 2</td>
+<td>F-020 to F-030</td>
+<td>a benchmark test that ran in a debug build, which the benchmark
+refuses</td>
+</tr>
+<tr>
+<td>Implementation and measurement</td>
+<td>F-031 to F-033</td>
+<td>small sorts scale worse than predicted, because of CPU–GPU round
+trips</td>
+</tr>
+<tr>
+<td>Performance work</td>
+<td>the pivot change</td>
+<td>median-of-three was 8–13× slower than min/max on
+<code>staggered</code> input</td>
+</tr>
+<tr>
+<td>Modeling the spec in Lean</td>
+<td>F-034</td>
+<td>two lifecycle rules can both apply to the same input</td>
+</tr>
+</tbody>
+</table>
+<p>Two findings remain open. F-031 is the scaling prediction for small
+sizes. F-032 is that the only way found to exercise the GPU-failure path
+is an injected status, because forcing a real GPU error safely was not
+possible. Both are recorded, not hidden.</p>
+<hr />
+<h2 id="what-is-next">7. What is next</h2>
+<p>The performance notes (<a href="https://github.com/rioffe/gpu-quicksort-revisited/blob/main/PERFORMANCE.md"><code>PERFORMANCE.md</code></a>)
+list concrete next steps. Each would start as a change to the
+specification:</p>
+<ul>
+<li><strong>Remove the phase-one round trips</strong> by computing each
+iteration’s next sequences on the GPU. This matters most at small sizes,
+where it could make sorts up to about 3× faster.</li>
+<li><strong>Close the float gap.</strong> Floats are 6–18% slower than
+integers. Part of the cost is the extra encode and decode passes; part
+is that the min/max pivot averages <em>codes</em> rather than
+<em>values</em>, which splits floats unevenly. Averaging in value space
+and folding the conversion into the sort would fix both.</li>
+<li><strong>Detect already-sorted input</strong> with one cheap pass,
+closing the last case where the CPU keeps up.</li>
+<li><strong>Support 64-bit indices</strong> for sorts beyond about 2.1
+billion keys.</li>
+</ul>
+<hr />
+<h2 id="where-to-look">8. Where to look</h2>
+<table>
+<colgroup>
+<col style="width: 50%" />
+<col style="width: 50%" />
+</colgroup>
+<thead>
+<tr>
+<th>To learn about</th>
+<th>Read</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Using the library or the command-line tool</td>
+<td><a href="https://github.com/rioffe/gpu-quicksort-revisited/blob/main/README.md"><code>README.md</code></a></td>
+</tr>
+<tr>
+<td>How the code is organized</td>
+<td><a href="https://github.com/rioffe/gpu-quicksort-revisited/blob/main/docs/ARCHITECTURE.md"><code>docs/ARCHITECTURE.md</code></a></td>
+</tr>
+<tr>
+<td>The spec-driven method and its tools</td>
+<td><a href="https://github.com/rioffe/speccheck">speccheck</a></td>
+</tr>
+<tr>
+<td>Why speccheck exists and how it works</td>
+<td><a href="https://rioffe.github.io/speccheck/introducing-speccheck.html">Introducing
+speccheck</a></td>
+</tr>
+<tr>
+<td>The exact contract</td>
+<td><a href="https://github.com/rioffe/gpu-quicksort-revisited/blob/main/SPEC.md"><code>SPEC.md</code></a></td>
+</tr>
+<tr>
+<td>Performance numbers and method</td>
+<td><a href="https://github.com/rioffe/gpu-quicksort-revisited/blob/main/PERFORMANCE.md"><code>PERFORMANCE.md</code></a></td>
+</tr>
+<tr>
+<td>Conformance evidence and recorded runs</td>
+<td><a href="https://github.com/rioffe/gpu-quicksort-revisited/blob/main/SPEC_BUILD_REPORT.md"><code>SPEC_BUILD_REPORT.md</code></a></td>
+</tr>
+<tr>
+<td>The Lean model of the spec</td>
+<td><a href="https://github.com/rioffe/gpu-quicksort-revisited/blob/main/proof_from_spec/README.md"><code>proof_from_spec/README.md</code></a></td>
+</tr>
+<tr>
+<td>The Lean proof of the code</td>
+<td><a href="https://github.com/rioffe/gpu-quicksort-revisited/blob/main/proof/README.md"><code>proof/README.md</code></a></td>
+</tr>
+<tr>
+<td>The findings from modeling</td>
+<td><a href="https://github.com/rioffe/gpu-quicksort-revisited/blob/main/docs/reviews/SPEC_MODEL_FINDINGS.md"><code>docs/reviews/SPEC_MODEL_FINDINGS.md</code></a></td>
+</tr>
+</tbody>
+</table>
+<p>The project was built with <a href="https://github.com/rioffe/speccheck">speccheck</a>’s spec-driven
+method. In order, it wrote the spec, reviewed it, planned the build,
+built the code against the spec, modeled the spec in Lean, and proved
+the code against that model. Each step left a checked record in the
+repository.</p>
+</body>
+</html>
