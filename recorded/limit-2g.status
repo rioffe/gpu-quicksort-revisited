@@ -1,0 +1,9 @@
+# Largest-input comparison: n = 2147483647 (2^31 - 1) uniform uint32 keys, MT19937 seed 42 (C-08
+# `uniform`), 1 warm-up + 3 timed runs each, every run verified against a CPU sort.
+# Apple M5 Max, macOS 26.6.2 (25G83), release builds, run one after another on an idle machine,
+# 2026-09-26.
+# Tool versions: mqsort 0.1.0 (metal-quicksort 4b4d028), gpuqsort 0.5.0 (gpu-quicksort-revisited
+# cd80de3), MPSGraph from macOS 26.6.2 via scripts/mpsgraph-sort-bench.swift.
+cuda-quicksort: mqsort --verbose bench --dist uniform --n 2147483647 --runs 3   exit=0 elapsed_s=283
+gpu-quicksort:  gpuqsort --verbose bench --dist uniform --n 2147483647 --runs 3 exit=0 elapsed_s=292
+mpsgraph:       swiftc -O scripts/mpsgraph-sort-bench.swift -o mpsgraph-sort-bench && ./mpsgraph-sort-bench 2147483647 3   exit=0 elapsed_s=268

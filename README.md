@@ -10,6 +10,24 @@ The paper itself is not included in this repository; read it at the DOI above. `
 
 The algorithm runs in two phases. In phase one, several threadgroups cooperate on one sequence. Each threadgroup counts its section, runs a prefix sum, reserves output space with one atomic fetch-and-add per side, and scatters into an auxiliary buffer; the host loops until enough independent subsequences exist. In phase two, each threadgroup sorts one subsequence on its own, using an explicit stack (shorter part first) and a bitonic sort once a part fits in threadgroup memory.
 
+## Largest inputs
+
+At the largest size all three sorts accept, **2³¹ − 1 = 2,147,483,647 uniform `uint32` keys**, compared with [metal-quicksort](https://github.com/rioffe/metal-quicksort), a Swift + Metal port of CUDA-Quicksort 1.6.1 with the same CLI (`mqsort`), and Apple's MPSGraph sort:
+
+| Sort | Median | Timed runs | Keys/s | vs. MPSGraph |
+| --- | ---: | --- | ---: | ---: |
+| MPSGraph `sort` (Apple) | 290.9 ms | 290.2 – 291.6 ms | 7.38 G | — |
+| CUDA-Quicksort port (`mqsort` 0.1.0) | 1,786 ms | 1,785.8 – 1,856.6 ms | 1.20 G | 6.1× slower |
+| GPU-Quicksort (`gpuqsort` 0.5.0) | 2,103 ms | 2,102.5 – 2,182.6 ms | 1.02 G | 7.2× slower |
+
+All three were run one after another on an idle Apple M5 Max (macOS 26.6.2) with release builds and the same keys: the C-08 `uniform` distribution with seed 42, 1 warm-up and 3 timed runs each, every output verified against a CPU sort. The medians exclude the first timed run, which was about 4% slower for both quicksorts. Raw outputs are in `recorded/limit-2g-*`, and the MPSGraph program is `scripts/mpsgraph-sort-bench.swift`.
+
+- **The limit is shared.** MPSGraph aborts the process for more than 2³¹ − 1 keys (`NDArray dimension length > INT_MAX`). Both quicksorts cap `maxKeys` at 2³¹ − 1, and both ran correctly at that size.
+- **MPSGraph's rate is flat** at about 7.4 billion keys per second from 64M up, as a fixed number of passes per key would give.
+- **The two quicksorts slow down as n grows,** because they need more phase-one passes. The CUDA-Quicksort port ran 20 iterations here and ended with 786,432 bitonic leaves and no phase-two partitioning. GPU-Quicksort ran 16 iterations plus 833,244 phase-two partitions.
+- **The port's lead over GPU-Quicksort widens with size:** about even at 16M, 3% at 64M, 9% at 1B and 15% at 2³¹ − 1 keys.
+- **For 32-bit keys on Apple silicon, MPSGraph's sort is 6–7× faster than either quicksort** at this size.
+
 ## Setup
 
 - **Required:**

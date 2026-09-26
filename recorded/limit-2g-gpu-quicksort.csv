@@ -1,0 +1,4 @@
+device,key,distribution,n,run,algorithm,wall_ms,gpu_ms,threads,maxseq,minseq,phase1_iterations,phase1_sequences,max_stack_depth,verified,gpuqsort_version,metallib_sha256,tuning_entry,os_version
+Apple M5 Max,uint32,uniform,2147483647,1,gpu-quicksort,2182.632,2097.666,512,65536,4096,16,65536,4,true,0.5.0,daefabcd5b9a6b33c15bbfb51561bd493900dc5a37ad5b75a09f8ca0da89ca3b,Apple M5 Max,Version 26.6.2 (Build 25G83)
+Apple M5 Max,uint32,uniform,2147483647,2,gpu-quicksort,2102.637,2095.103,512,65536,4096,16,65536,4,true,0.5.0,daefabcd5b9a6b33c15bbfb51561bd493900dc5a37ad5b75a09f8ca0da89ca3b,Apple M5 Max,Version 26.6.2 (Build 25G83)
+Apple M5 Max,uint32,uniform,2147483647,3,gpu-quicksort,2102.527,2095.006,512,65536,4096,16,65536,4,true,0.5.0,daefabcd5b9a6b33c15bbfb51561bd493900dc5a37ad5b75a09f8ca0da89ca3b,Apple M5 Max,Version 26.6.2 (Build 25G83)
