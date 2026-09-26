@@ -2,7 +2,7 @@
 
 A Swift + Metal implementation of **GPU-Quicksort** (Cederman and Tsigas, *GPU-Quicksort: A Practical Quicksort Algorithm for Graphics Processors*, ACM JEA 14, Art. 1.4, 2009, [doi:10.1145/1498698.1564500](https://doi.org/10.1145/1498698.1564500)) for Apple silicon GPUs. It includes a library, a CLI for benchmarking, verification and tuning, and a test suite traced to [`SPEC.md`](SPEC.md) v0.5. Built with [speccheck](https://github.com/rioffe/speccheck)'s spec-driven method: *spec-writing* wrote [`SPEC.md`](SPEC.md), *spec-review* reviewed it, *spec-plan* planned it and *spec-build* built it. speccheck checks the implementation against the spec ([Introducing speccheck](https://rioffe.github.io/speccheck/introducing-speccheck.html)).
 
-It is fast. On an Apple M5 Max it sorts **64 million 32-bit keys in 43 ms, about 1.55 billion keys per second**. That is **9× faster than parallel `std::sort` running on all 18 CPU cores**, 24× faster than `std::sort`, and 145× faster than Swift's `Array.sort()`. 16M keys take 13 ms. It stays ahead on every random input distribution from the paper, including the adversarial `staggered` one, and all-equal input sorts at nearly 10 billion keys per second. The one case where a CPU sort keeps up is already-sorted input, where sequential `std::sort` detects the presorted runs; at 64M keys GPU-Quicksort matches it. Full numbers, methodology and next steps are in [PERFORMANCE.md](PERFORMANCE.md).
+It is fast. On an Apple M5 Max it sorts **64 million 32-bit keys in 43 ms, about 1.55 billion keys per second**. That is **9× faster than parallel `std::sort` running on all 18 CPU cores**, 24× faster than `std::sort`, and 145× faster than Swift's `Array.sort()`. 16M keys take 13 ms, and 1G keys take 0.9 s, 7–8× faster than parallel `std::sort`. It stays ahead on every random input distribution from the paper, including the adversarial `staggered` one, and all-equal input sorts at nearly 10 billion keys per second. The one case where a CPU sort keeps up is already-sorted input, where sequential `std::sort` detects the presorted runs; at 64M keys GPU-Quicksort matches it. Full numbers, methodology and next steps are in [PERFORMANCE.md](PERFORMANCE.md).
 
 For an overview of what the project built and how it was verified, read the article [GPU-Quicksort, Revisited](https://rioffe.github.io/gpu-quicksort-revisited/) (source: [`docs/ARTICLE.md`](docs/ARTICLE.md)). For a tour of the code, see [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
 
@@ -123,6 +123,7 @@ After editing the `.metal` file or `SharedTypes.h`, run `scripts/build-metallib.
 ```text
 Package.swift
 scripts/build-metallib.sh            MSL → .metallib (release + test hooks) and the stamp
+scripts/bench-large.sh               128M–1G keys: GPU vs. parallel std::sort (stdsort-par-bench.cpp)
 Sources/CShared/                     SharedTypes.h (host ↔ kernel layouts)
 Sources/CPUBaselines/                qsort.c, stdsort.cpp (C ABI baselines)
 Sources/GPUQuicksort/

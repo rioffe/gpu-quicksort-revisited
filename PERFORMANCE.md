@@ -2,13 +2,13 @@
 
 > - **Build:** `gpuqsort` 0.4.0 implementing `SPEC.md` v0.5, release configuration
 > - **Machine:** Apple M5 Max (18 CPU cores), macOS 26.6.2, Metal toolchain 32023.921
-> - **Source data:** `recorded/bench.csv` (1M–16M keys, 750 rows), `recorded/bench-large.csv` (32M–64M keys, 300 rows), `recorded/tune.json`, `recorded/stdsort-par-unseq.txt`, and `recorded/bench-keys.csv` (key types). Every GPU and CPU result was verified against the CPU reference sort.
+> - **Source data:** `recorded/bench.csv` (1M–16M keys, 750 rows), `recorded/bench-large.csv` (32M–64M keys, 300 rows), `recorded/tune.json`, `recorded/stdsort-par-unseq.txt`, `recorded/bench-keys.csv` (key types), and `recorded/bench-huge.csv` with `recorded/bench-huge-cpu.csv` (128M–1G keys, `gpuqsort` 0.5.0). Every GPU and CPU result was verified against the CPU reference sort.
 > - **Method:** `gpuqsort bench --dist all --n 1M,2M,4M,8M,16M` (and `--n 32M,64M`) `--runs 5 --cpu`, `uint32` keys, tuned defaults from the `Apple M5 Max` entry of `TunedParameters.json`. The phase-one pivot is `minMaxAverage`, the v0.5 default. Every value is the median of 5 timed runs; one warm-up run is discarded, and copying the input is not timed.
 > - **CPU baselines:** Swift `Array.sort()`, libc `qsort`, C++ `std::sort`, and parallel C++ `std::sort(std::execution::par, …)`, which is libc++'s parallel algorithms on libdispatch, enabled with `-fexperimental-library`.
 
 ## Summary
 
-GPU-Quicksort sorts **64M 32-bit keys in 43 ms (1.55 Gkeys/s)** and 16M keys in 13 ms. On random inputs it is **9× faster than parallel `std::sort`** on all 18 CPU cores, and 24× faster than sequential `std::sort`. The only case where a CPU sort matches it is already-sorted input, where sequential `std::sort` detects the presorted runs.
+GPU-Quicksort sorts **64M 32-bit keys in 43 ms (1.55 Gkeys/s)** and 16M keys in 13 ms. On random inputs it is **9× faster than parallel `std::sort`** on all 18 CPU cores, and 24× faster than sequential `std::sort`. The only case where a CPU sort matches it is already-sorted input, where sequential `std::sort` detects the presorted runs. At very large sizes it sorts **1G keys in 0.9 s**, 7–8× faster than parallel `std::sort` on `uniform`, `gaussian` and `bucket` input (see *Very large inputs*).
 
 ## Results at 64M keys
 
@@ -122,11 +122,45 @@ Parallel `std::sort` is only 2.7–5.2× faster than sequential `std::sort` on r
 3. **All-equal input is the best case.** One partition pass sends every key to the pivot gap, which finalizes the whole array in place; phase two never runs (K-10, E-24).
 4. **Already-sorted input is the only case the CPU can match.** Sequential `std::sort` and Swift's sort run in near-linear time on presorted data. GPU-Quicksort beats them from 64M keys, and beats parallel `std::sort` at every size.
 
+## Very large inputs: 128M to 1G keys
+
+Measured with `scripts/bench-large.sh` (`gpuqsort` 0.5.0, release build): `gpuqsort bench --dist all --n 128M,256M,512M,1024M --runs 5` for the GPU, and `scripts/stdsort-par-bench.cpp` for parallel `std::sort`. At these sizes the sequential CPU baselines take minutes per run, so only parallel `std::sort` is compared. The harness uses the same compiler flags as the `CPUBaselines` target, sorts the same inputs (written by `gpuqsort gen`), and follows the same timing rule: the input restore is not timed, one warm-up run is discarded, and every run is checked against a sequential `std::sort`. The two halves ran one after the other. Every value is the median of 5 runs, and every run on both sides verified.
+
+| Input | 128M | 256M | 512M | 1G | Speed-up over parallel `std::sort` (128M → 1G) |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| uniform | 92.8 ms | 179.5 ms | 366.6 ms | 901.8 ms | 8.6× → 8.9× → 8.9× → 7.6× |
+| gaussian | 95.6 ms | 188.5 ms | 371.6 ms | 932.4 ms | 8.5× → 8.7× → 9.0× → 7.4× |
+| bucket | 97.2 ms | 188.7 ms | 372.7 ms | 890.5 ms | 7.8× → 7.9× → 8.2× → 7.1× |
+| staggered | 92.9 ms | 188.8 ms | 372.0 ms | 866.7 ms | 5.0× → 4.9× → 5.2× → 4.8× |
+| zero | 7.5 ms | 9.6 ms | 20.1 ms | 25.2 ms | 25× → 40× → 39× → 71× |
+| sorted | 91.8 ms | 178.6 ms | 357.8 ms | 815.9 ms | 2.3× → 2.5× → 2.6× → 2.4× |
+
+Parallel `std::sort` on the same inputs:
+
+| Input | 128M | 256M | 512M | 1G | Throughput |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| uniform | 794 ms | 1,595 ms | 3,275 ms | 6,865 ms | 0.16–0.17 Gkeys/s |
+| gaussian | 811 ms | 1,636 ms | 3,351 ms | 6,924 ms | 0.16–0.17 Gkeys/s |
+| bucket | 757 ms | 1,493 ms | 3,054 ms | 6,350 ms | 0.17–0.18 Gkeys/s |
+| staggered | 462 ms | 927 ms | 1,916 ms | 4,134 ms | 0.26–0.29 Gkeys/s |
+| zero | 190 ms | 380 ms | 784 ms | 1,797 ms | 0.60–0.71 Gkeys/s |
+| sorted | 210 ms | 444 ms | 941 ms | 1,968 ms | 0.55–0.64 Gkeys/s |
+
+- **Up to 512M keys, GPU time is linear in $n$.** Throughput stays at 1.38–1.50 Gkeys/s on every input except `zero`, about the same as at 64M.
+- **At 1G keys, GPU throughput drops by about 20%**, to 1.15–1.32 Gkeys/s, so the lead over parallel `std::sort` shrinks from about 9× to about 7.5×. The likely cause is that two parameters reach their hard limits:
+  - `maxseq` reaches its K-04 maximum of 65,536 at 512M, so phase one hands phase two about as many sequences at 1G as at 512M (65–90K), each about twice as long;
+  - `minseq` is held at 4,096 at every size here by threadgroup memory (K-03, with $T = 512$), so each phase-two threadgroup needs more partition passes before its pieces fit the bitonic sort.
+
+  The tuned constants were fitted from 512K to 16M keys, so every default at these sizes is extrapolated. Whether other explicit parameters recover the 1G throughput is not yet measured.
+- **`staggered` is where parallel `std::sort` does best** on random inputs (0.28 Gkeys/s against 0.16 on `uniform`), so the GPU's lead there is about 5×. The GPU itself is equally fast on every random distribution.
+- **All-equal input** takes one partition pass and no phase two at every size: 1G keys in 25 ms, about 43 Gkeys/s. Runs this short vary more (at 128M the median is 7.5 ms and the minimum 4.5 ms).
+- **Phase one** takes 14–18 iterations at these sizes, against 13–15 at 64M.
+
 ## Size limits
 
 - **Current limit:** $2^{31} - 1$ keys, about 2.1 billion (K-01, set by 32-bit indices).
   - Keys plus the auxiliary buffer need 16 GiB at that size, well within Metal's recommended working set on this machine (115 GB).
-  - Estimated time for a maximum-size sort is roughly 2–3 s.
+  - Measured: 1G keys ($2^{30}$) take 0.82–0.93 s (see *Very large inputs*). A maximum-size sort should take about 2 s, or more if the capped parameters keep lowering throughput.
 - **With 64-bit indices** (a spec change to K-01, C-05 and C-06): about 12–14 billion keys, limited by the working set, since the key and auxiliary buffers must both fit.
 
 ## Next steps
@@ -139,5 +173,6 @@ Parallel `std::sort` is only 2.7–5.2× faster than sequential `std::sort` on r
 3. **Measure effective memory bandwidth.** Divide the bytes moved per partition pass by GPU time at 64M keys, to check the paper's claim that the algorithm is bandwidth-bound [P §5.4] on this hardware.
 4. **Re-tune after each change.** Run `swift build -c release && .build/release/gpuqsort tune --write --as-default` on an idle GPU and commit `TunedParameters.json`.
 5. **Resolve the open findings.** F-031: measure T-33's scaling from 4M keys, or drop its range. F-032: find a bounded way to produce a real Metal command-buffer error for E-09, never with non-terminating kernels, which can leave the GPU busy until reboot.
-6. **Consider 64-bit indices** if sorts beyond 2.1 billion keys are needed.
-7. **Close the `float32` gap:** compute the min/max pivot in value space for floats, and fold the key conversion into the sort (see *Improving `float32` performance*).
+6. **Tune for very large inputs.** Fit the constants beyond 16M keys, and measure whether explicit parameters (for example a smaller $T$, which allows a larger `minseq`) recover the throughput lost at 1G keys.
+7. **Consider 64-bit indices** if sorts beyond 2.1 billion keys are needed.
+8. **Close the `float32` gap:** compute the min/max pivot in value space for floats, and fold the key conversion into the sort (see *Improving `float32` performance*).
