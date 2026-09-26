@@ -147,14 +147,37 @@ Parallel `std::sort` on the same inputs:
 | sorted | 210 ms | 444 ms | 941 ms | 1,968 ms | 0.55–0.64 Gkeys/s |
 
 - **Up to 512M keys, GPU time is linear in $n$.** Throughput stays at 1.38–1.50 Gkeys/s on every input except `zero`, about the same as at 64M.
-- **At 1G keys, GPU throughput drops by about 20%**, to 1.15–1.32 Gkeys/s, so the lead over parallel `std::sort` shrinks from about 9× to about 7.5×. The likely cause is that two parameters reach their hard limits:
-  - `maxseq` reaches its K-04 maximum of 65,536 at 512M, so phase one hands phase two about as many sequences at 1G as at 512M (65–90K), each about twice as long;
-  - `minseq` is held at 4,096 at every size here by threadgroup memory (K-03, with $T = 512$), so each phase-two threadgroup needs more partition passes before its pieces fit the bitonic sort.
-
-  The tuned constants were fitted from 512K to 16M keys, so every default at these sizes is extrapolated. Whether other explicit parameters recover the 1G throughput is not yet measured.
+- **At 1G keys, GPU throughput drops by about 20%** with the default parameters, to 1.15–1.32 Gkeys/s, so the lead over parallel `std::sort` shrinks from about 9× to about 7.5×. The cause is phase one, not phase two; see *What limits throughput at 1G keys* below.
 - **`staggered` is where parallel `std::sort` does best** on random inputs (0.28 Gkeys/s against 0.16 on `uniform`), so the GPU's lead there is about 5×. The GPU itself is equally fast on every random distribution.
 - **All-equal input** takes one partition pass and no phase two at every size: 1G keys in 25 ms, about 43 Gkeys/s. Runs this short vary more (at 128M the median is 7.5 ms and the minimum 4.5 ms).
 - **Phase one** takes 14–18 iterations at these sizes, against 13–15 at 64M.
+
+### What limits throughput at 1G keys
+
+Measured with `gpuqsort --verbose bench --dist uniform --runs 3` and explicit parameters (`recorded/bench-1g-params.csv`). Phase one is the sum of the per-iteration diagnostic times; the rest is phase two plus host work (there is no key conversion for `uint32`). Medians of 3 runs, all verified.
+
+| n | T | maxseq | minseq | Keys per thread in phase one | Total | Phase one | Rest |
+| ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| 512M | 512 | 65,536 (default) | 4,096 | 16 | 366 ms | 225 ms | 141 ms |
+| 512M | 512 | 32,768 | 4,096 | 32 | 432 ms | 287 ms | 145 ms |
+| 1G | 512 (default) | 65,536 | 4,096 | 32 | 904 ms | 611 ms | 293 ms |
+| 1G | 1024 | 65,536 | 4,096 | 16 | **812 ms** | **440 ms** | 373 ms |
+| 1G | 256 | 65,536 | 4,096 | 64 | 981 ms | 710 ms | 272 ms |
+| 1G | 512 | 32,768 | 4,096 | 64 | 993 ms | 687 ms | 306 ms |
+| 1G | 512 | 65,536 | 2,048 | 32 | 906 ms | 616 ms | 290 ms |
+| 1G | 512 | 65,536 | 1,024 | 32 | 926 ms | 611 ms | 315 ms |
+
+"Keys per thread" is the phase-one block size divided by $T$: $\max(T, \lceil n/\text{maxseq} \rceil) / T$ in the first iteration, and about the same in later ones.
+
+- **Phase two scales linearly.** From 512M to 1G with the default parameters, the rest grows from 141 to 293 ms (2.1×). Longer phase-two sequences cost little (`maxseq` 32,768 at 512M: 141 → 145 ms), and a smaller `minseq` does not help.
+- **Phase one does not.** It grows from 225 to 611 ms (2.7×) for twice the keys, with the same number of iterations.
+- **Phase one's cost per key follows the keys per thread.** Because `maxseq` is capped at 65,536, the block size grows with $n$: 8,192 keys at 512M, 16,384 at 1G, so each of the $T = 512$ threads handles 32 keys instead of 16. Every configuration above fits this, measured as phase-one time per key per iteration: 16 keys per thread costs 25–26 ps, 32 costs 34–36 ps, and 64 costs 41–43 ps, at both sizes. At 1G, $T = 1024$ brings the keys per thread back to 16, and phase one back to linear (440 ms, 2.0× the 512M time). A likely reason is the scatter: each thread writes its keys to consecutive output positions, so the more keys per thread, the further apart the addresses that neighboring threads write at the same time.
+- **$T = 1024$ is the fastest setting found at 1G** (812 ms, 1.32 Gkeys/s, 11% faster than the default), but it slows phase two (293 → 373 ms), because every kernel shares one $T$.
+- **`minseq` cannot go above 4,096 for any $T$.** Phase two's threadgroup memory is $(\max(2T, \text{minseq}) + 104) \cdot 4$ bytes (K-03), and this GPU allows 32 KiB per threadgroup.
+
+Two changes could keep phase one linear beyond 512M. Both change K-04 or K-06, so they need a spec proposal first:
+1. **Cap the phase-one block size at a fixed number of keys per thread**, for example $16T$, and launch more blocks per sequence once `maxseq` is at its cap. This decouples the number of phase-one threadgroups from `maxseq`.
+2. **Allow a separate $T$ for phase one and phase two.** With $T = 1024$ in phase one and $T = 512$ in phase two, the measurements above suggest about 440 + 293 ≈ 730 ms at 1G keys, about 1.47 Gkeys/s, matching the throughput at smaller sizes. This is an estimate, not a measurement.
 
 ## Size limits
 
@@ -173,6 +196,6 @@ Parallel `std::sort` on the same inputs:
 3. **Measure effective memory bandwidth.** Divide the bytes moved per partition pass by GPU time at 64M keys, to check the paper's claim that the algorithm is bandwidth-bound [P §5.4] on this hardware.
 4. **Re-tune after each change.** Run `swift build -c release && .build/release/gpuqsort tune --write --as-default` on an idle GPU and commit `TunedParameters.json`.
 5. **Resolve the open findings.** F-031: measure T-33's scaling from 4M keys, or drop its range. F-032: find a bounded way to produce a real Metal command-buffer error for E-09, never with non-terminating kernels, which can leave the GPU busy until reboot.
-6. **Tune for very large inputs.** Fit the constants beyond 16M keys, and measure whether explicit parameters (for example a smaller $T$, which allows a larger `minseq`) recover the throughput lost at 1G keys.
+6. **Keep phase one linear beyond 512M keys.** Cap the phase-one block size at a fixed number of keys per thread, or allow a separate $T$ per phase (see *What limits throughput at 1G keys*). Refit the tuning constants beyond 16M keys: at 1G, $T = 1024$ is already 11% faster than the fitted default of 512.
 7. **Consider 64-bit indices** if sorts beyond 2.1 billion keys are needed.
 8. **Close the `float32` gap:** compute the min/max pivot in value space for floats, and fold the key conversion into the sort (see *Improving `float32` performance*).
